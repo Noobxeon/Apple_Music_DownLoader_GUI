@@ -5,8 +5,9 @@ const { PythonShell } = require('python-shell');
 const { spawn } = require('child_process');
 
 let mainWindow;
-const configPath = path.join(__dirname, 'config.json');
-const cookiePath = path.join(__dirname, 'cookies.txt');
+const userDataPath = app.getPath('userData');
+const configPath = path.join(userDataPath, 'config.json');
+const cookiePath = path.join(userDataPath, 'cookies.txt');
 
 // 保存正在运行的下载进程，方便随时击杀
 const activeDownloads = new Map();
@@ -17,7 +18,11 @@ function createWindow () {
     webPreferences: { nodeIntegration: true, contextIsolation: false }
   });
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.loadURL('http://localhost:8080'); 
+  if (app.isPackaged) {
+    mainWindow.loadFile(path.join(__dirname, 'frontend/dist/index.html'));
+  } else {
+    mainWindow.loadURL('http://localhost:8080'); 
+  }
 }
 
 app.whenReady().then(createWindow);
@@ -38,11 +43,10 @@ ipcMain.handle('check-cookie', () => {
 });
 ipcMain.handle('run-login', async () => {
   return new Promise((resolve, reject) => {
-    const scriptDir = path.join(__dirname, 'backend');
-    const options = { mode: 'text', pythonOptions: ['-u'], scriptPath: scriptDir, cwd: scriptDir };
+    const getBackendPath = () => __dirname.includes('app.asar') ? path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'backend') : path.join(__dirname, 'backend');
+    const scriptDir = getBackendPath();
+    const options = { mode: 'text', pythonOptions: ['-u'], args: [cookiePath], scriptPath: scriptDir, cwd: scriptDir };
     PythonShell.run('cookie_helper.py', options).then(() => {
-      const p1 = path.join(scriptDir, 'cookies.txt');
-      if (fs.existsSync(p1)) fs.copyFileSync(p1, cookiePath);
       resolve('成功');
     }).catch(reject);
   });

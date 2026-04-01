@@ -1,8 +1,9 @@
 import os
 from playwright.sync_api import sync_playwright
 
-# 定义保存 cookies 的路径，保存在上一级目录(根目录)
-COOKIES_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cookies.txt')
+import sys
+# 定义保存 cookies 的路径，保存在上一级目录(根目录) 或者由命令行传入
+COOKIES_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cookies.txt')
 
 def convert_to_netscape(playwright_cookies):
     """将 Playwright 的 Cookie 转换为 gamdl 认识的 Netscape 格式"""

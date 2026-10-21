@@ -1,3 +1,9 @@
+# v1.3.1 用户反馈修复
+
+- 冻结入口缺少 `multiprocessing.freeze_support()`，gamdl 的 yt-dlp worker 重启 EXE 时进入 Click 而被拒绝。入口现在先分流 worker，再导入 CLI；构建验收增加真实冻结 HTTP/HLS 子进程下载。
+- 冻结 Python 启动时未按环境变量应用输出编码；stdout/stderr 现在显式配置 UTF-8，与 Electron 解码一致。
+- 旧 iTunes Store 搜索不等于 Apple Music 订阅曲库。改为解析官方 Apple Music 搜索页的结构化数据，保持用户选择的地区与原始曲目 URL，并验证中国大陆 Yorushika 的目标歌曲。
+
 # v1.3.0 完整发行版更新
 
 本版将 Python 与 gamdl 冻结为独立 Windows 引擎，并通过 electron-builder extraResources 放入 `resources/engine/`。发行版优先且只使用内置引擎，包损坏时提示重新安装，不回退到系统 Python。

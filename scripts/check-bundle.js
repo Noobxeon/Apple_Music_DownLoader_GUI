@@ -5,4 +5,6 @@ const engine = path.resolve(__dirname, '../vendor/gamdl-engine/gamdl-engine.exe'
 if (!fs.existsSync(engine)) throw new Error('Missing bundled engine. Run your build venv Python scripts/build-engine.py first.');
 const report = JSON.parse(execFileSync(engine, ['--gui-self-test'], { encoding: 'utf8', windowsHide: true, timeout: 30000 }));
 if (report.version !== '3.9.1' || !report.frozen || !report.native) throw new Error('Bundled engine self-test failed.');
+const download = JSON.parse(execFileSync(engine, ['--gui-download-self-test'], { encoding: 'utf8', windowsHide: true, timeout: 60000 }));
+if (!download.worker || !download.http || !download.hls || download.utf8 !== '日本語 中文 音楽') throw new Error('Bundled worker/download/UTF-8 self-test failed.');
 console.log('Release bundle: standalone engine is ready.');

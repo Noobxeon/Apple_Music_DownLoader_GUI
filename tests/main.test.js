@@ -46,7 +46,8 @@ function harness(overrides = {}) {
       writeFileSync: (name, value) => { if (overrides.writeError) throw new Error('read-only'); files.set(name, value); }, mkdirSync() {} },
     path, child_process: { spawn },
     './backend/engine': { ...realEngine, engineRuntime: overrides.engineRuntime || (async () => ({ command: 'python.exe', prefix: [], version: '3.9.1' })) },
-    './backend/cookies': require('../backend/cookies')
+    './backend/cookies': require('../backend/cookies'),
+    './backend/search': require('../backend/search')
   };
   const context = { require: name => { if (!(name in modules)) throw new Error(name); return modules[name]; },
     __dirname: '/app', console, process: { platform: 'win32', env: {} },

@@ -19,6 +19,11 @@ test('standalone engine works with empty PATH and invalid Python environment', {
   assert.equal(report.version, '3.9.1');
   assert.equal(report.native, true);
   assert.equal(report.frozen, true);
+  const download = JSON.parse(invoke(['--gui-download-self-test']));
+  assert.equal(download.worker, true);
+  assert.equal(download.http, true);
+  assert.equal(download.hls, true);
+  assert.equal(download.utf8, '日本語 中文 音楽');
   assert.match(invoke(['--version']), /3\.9\.1/);
   for (const args of [
     ['--no-config-file', '--cookies-path', 'C:/test data/cookies.txt', '--song-codec-priority', 'aac-web', '--', 'https://music.apple.com/cn/song/a/123?i=1&l=cn'],

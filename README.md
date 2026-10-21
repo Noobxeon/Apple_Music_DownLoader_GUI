@@ -1,6 +1,8 @@
 # AM Downloader · Apple Music 下载器
 
-Windows x64 桌面客户端，基于 Electron + Vue 3 + [gamdl](https://github.com/glomatico/gamdl)。当前版本 **1.3.0**。
+Windows x64 桌面客户端，基于 Electron + Vue 3 + [gamdl](https://github.com/glomatico/gamdl)。当前版本 **1.3.1**。
+
+1.3.1 修复 Windows 冻结引擎下载时 `No such option '--multiprocessing-fork'`，统一日文/中文日志为 UTF-8，并将旧 iTunes Store 搜索替换为 Apple Music 实际曲库搜索，解决中国大陆能播放但搜不到的歌曲。构建前强制执行真实冻结子进程的本地 HTTP/HLS 下载回归。
 
 ## 下载即用
 

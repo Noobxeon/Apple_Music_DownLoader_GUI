@@ -66,6 +66,13 @@ app.on('browser-window-created', (_event, win) => {
       const direct = await evaluate(`return await window.musicAPI.invoke('search-music',{term:'https://music.apple.com/cn/album/test-album/123?i=456&l=cn',country:'cn'});`);
       assert.equal(direct[0].isDirectUrl, true);
       report.tests.push('real direct-link parser');
+      const cnSearch = await evaluate(`return await window.musicAPI.invoke('search-music',{term:'yorushika',country:'cn'});`);
+      assert.ok(cnSearch.some(item => item.id === '1648877323' && item.url.includes('/cn/')));
+      report.tests.push('live CN Yorushika search returns reported song 1648877323 with CN URL');
+      await evaluate(`const input=document.querySelector('.search-form input');input.value='yorushika';input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.search-form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));for(let i=0;i<300;i++){await new Promise(r=>setTimeout(r,100));if(!document.querySelector('.search-form .spinner'))break;}`);
+      assert.ok(await evaluate(`return document.querySelector('.song-table')?.textContent.includes('だから僕は音楽を辞めた') || document.querySelector('.page-content').textContent.includes('だから僕は音楽を辞めた');`));
+      await snapshot('cn-yorushika-search');
+      report.tests.push('CN Yorushika search renders original Japanese title in production UI');
       // External search is reported separately from deterministic offline checks.
       try {
         const liveSearch = await evaluate(`return await window.musicAPI.invoke('search-music',{term:'Taylor Swift',country:'us'});`);

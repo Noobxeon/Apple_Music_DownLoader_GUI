@@ -1,7 +1,18 @@
 """Console entry point for the private, self-contained Windows download engine."""
+import multiprocessing
+
+# Frozen workers re-enter this executable. Dispatch them before Click sees argv.
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
 import importlib.metadata
 import json
 import sys
+
+# Frozen Python ignores PYTHONIOENCODING at interpreter startup. Electron reads UTF-8.
+for stream in (sys.stdout, sys.stderr):
+    if stream is not None and hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 from gamdl import _ammuxer
 from gamdl.cli.cli import main
@@ -27,6 +38,9 @@ def self_test():
 if __name__ == "__main__":
     if sys.argv[1:] == ["--gui-self-test"]:
         print(json.dumps(self_test()))
+    elif sys.argv[1:] == ["--gui-download-self-test"]:
+        from engine_probe import download_self_test
+        print(json.dumps(download_self_test(), ensure_ascii=False))
     elif len(sys.argv) == 3 and sys.argv[1] == "--gui-validate-args":
         with main.make_context("gamdl", json.loads(sys.argv[2])) as context:
             print(json.dumps({"valid": True, "urls": context.params["urls"]}))

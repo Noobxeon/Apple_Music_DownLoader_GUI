@@ -43,3 +43,9 @@ result = subprocess.run([str(target / "gamdl-engine.exe"), "--gui-self-test"], c
 report = json.loads(result.stdout)
 assert report["frozen"] and report["native"] and report["version"] == VERSION
 print("Bundled engine verified:", result.stdout.strip())
+download = subprocess.run([str(target / "gamdl-engine.exe"), "--gui-download-self-test"],
+                          check=True, capture_output=True, text=True, encoding="utf-8", timeout=60)
+probe = json.loads(download.stdout)
+assert probe["worker"] and probe["http"] and probe["hls"]
+assert probe["utf8"] == "日本語 中文 音楽"
+print("Frozen worker HTTP/HLS/UTF-8 verified:", download.stdout.strip())

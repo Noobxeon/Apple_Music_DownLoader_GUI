@@ -4,6 +4,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const { engineRuntime, engineArgs, capture, musicUrl, checkWrapper, buildDownloadArgs, downloadResult } = require('./backend/engine');
 const { validToken, toNetscape, hasValidToken } = require('./backend/cookies');
+const { searchCatalog } = require('./backend/search');
 
 const diagnosticsMode = (process.argv || []).includes('--diagnostics');
 if (diagnosticsMode) {
@@ -289,31 +290,7 @@ ipcMain.handle('search-music', async (event, { term, country = 'cn' }) => {
       }
     }
 
-    const encodedTerm = encodeURIComponent(trimmed);
-    const searchCountry = country || 'cn';
-
-    // 强制分离搜歌曲和搜专辑，避免混入电台播客
-    const [songRes, albumRes] = await Promise.all([
-      net.fetch(`https://itunes.apple.com/search?term=${encodedTerm}&country=${searchCountry}&entity=song&limit=100`, { signal: AbortSignal.timeout(20000) }),
-      net.fetch(`https://itunes.apple.com/search?term=${encodedTerm}&country=${searchCountry}&entity=album&limit=60`, { signal: AbortSignal.timeout(20000) })
-    ]);
-
-    if (!songRes.ok || !albumRes.ok) throw new Error('搜索服务暂不可用，请稍后重试');
-    const songData = await songRes.json();
-    const albumData = await albumRes.json();
-    
-    const combined = [...(songData.results || []), ...(albumData.results || [])];
-
-    return combined.map(item => ({
-      id: String(item.trackId || item.collectionId),
-      type: item.wrapperType === 'track' ? '歌曲' : '专辑',
-      title: item.trackName || item.collectionName,
-      artist: item.artistName || '未知艺术家',
-      album: item.collectionName || item.trackName || '',
-      cover: item.artworkUrl100 ? item.artworkUrl100.replace('100x100bb', '600x600bb') : '',
-      url: (item.trackViewUrl || item.collectionViewUrl || '').replace('https://itunes.apple.com/', 'https://music.apple.com/'),
-      previewUrl: item.previewUrl || ''
-    }));
+    return await searchCatalog(net.fetch.bind(net), trimmed, country || 'cn');
   } catch (e) {
     console.error('search-music error:', e);
     throw e;

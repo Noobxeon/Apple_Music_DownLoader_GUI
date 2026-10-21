@@ -1,13 +1,14 @@
 {
   "name": "apple_music",
-  "version": "1.1.0",
+  "version": "1.3.0",
   "description": "基于 Electron + Vue 3 的 Apple Music 下载器",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "build:frontend": "cd frontend && npm run build",
-    "build": "npm run build:frontend && electron-builder",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node scripts/check-bundle.js && npm run build:frontend && electron-builder",
+    "test": "node --test tests/*.test.js",
+    "build:engine": "python scripts/build-engine.py"
   },
   "build": {
     "appId": "com.music.downloader",
@@ -16,7 +17,22 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signExecutable": false,
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -30,11 +46,23 @@
     ],
     "files": [
       "main.js",
+      "build/icon.ico",
+      "preload.js",
       "backend/**/*",
       "frontend/dist/**/*",
       "package.json",
       "node_modules/**/*"
-    ]
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/gamdl-engine",
+        "to": "engine",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "artifactName": "Apple-Music-Downloader-${version}-${arch}.${ext}"
   },
   "keywords": [
     "apple-music",
@@ -49,8 +77,5 @@
   "devDependencies": {
     "electron": "^41.0.3",
     "electron-builder": "^26.8.1"
-  },
-  "dependencies": {
-    "python-shell": "^5.0.0"
   }
 }

@@ -1,1461 +1,220 @@
 <template>
-  <div id="app">
-    <!-- 顶部导航栏 -->
-    <div class="header">
-      <div class="header-left">
-        <h1 @click="currentNav = 'search'">🎵 Apple Music 下载器</h1>
-        
-        <!-- 地区选择器与搜索框 -->
-        <div class="search-box">
-          <select v-model="config.country" @change="saveConfig" class="country-select" title="选择搜索地区 (Storefront)">
-            <option value="cn">🇨🇳 中国 (CN)</option>
-            <option value="us">🇺🇸 美国 (US)</option>
-            <option value="jp">🇯🇵 日本 (JP)</option>
-            <option value="hk">🇭🇰 香港 (HK)</option>
-            <option value="tw">🇹🇼 台湾 (TW)</option>
-            <option value="gb">🇬🇧 英国 (GB)</option>
-          </select>
-          <input 
-            v-model="keyword" 
-            @keyup.enter="handleSearchOrDirectDownload" 
-            placeholder="输入歌手、歌曲、专辑名，或直接粘贴 Apple Music 链接..." 
-          />
-          <button @click="handleSearchOrDirectDownload" :disabled="isSearching" class="search-btn">
-            {{ isSearching ? '搜索中...' : '搜索' }}
-          </button>
-        </div>
+  <div class="desktop-app">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-icon"><AppIcon name="music" :size="25" /></div><div><strong>AM Downloader</strong><span>Apple Music 下载器</span></div></div>
+      <div class="nav-label">音乐空间</div>
+      <nav aria-label="主导航"><button v-for="item in navItems" :key="item.id" :class="['nav-item', { active: currentNav === item.id }]" @click="navigate(item.id)"><AppIcon :name="item.icon" /><span>{{ item.label }}</span><span v-if="item.id === 'downloads' && activeTasksCount" class="nav-count">{{ activeTasksCount }}</span></button></nav>
+      <div class="sidebar-tip"><AppIcon name="headphones" :size="23" /><strong>从喜欢，到收藏</strong><p>搜索音乐，或粘贴链接。<br>让每一首好歌井然有序。</p><button @click="navigate('direct')">粘贴音乐链接 <AppIcon name="arrow" :size="15" /></button></div>
+      <div class="sidebar-bottom"><div :class="['engine-state', { ready: gamdlStatus.installed }]"><i></i><span>{{ gamdlStatus.installed ? '内置引擎已就绪' : (checkingEngine ? '正在检查内置引擎' : '引擎需要检查') }}</span></div><span class="version">Windows 桌面版 · v{{ appVersion }}</span></div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar"><div class="breadcrumb">音乐空间 <AppIcon name="chevron" :size="13" /> <span>{{ pageTitle }}</span></div><button :class="['account-button', { connected: cookieReady }]" @click="handleLogin" :disabled="isLoading"><span class="avatar"><AppIcon :name="cookieReady ? 'check' : 'user'" :size="16" /></span>{{ isLoading ? '正在登录…' : (cookieReady ? '已登录 · 刷新凭证' : '登录 Apple Music') }}<AppIcon name="chevron" :size="13" /></button></header>
+      <div v-if="isLoading" class="login-banner" role="status"><span class="spinner"></span><span>{{ loginMessage }}</span><button class="text-button" @click="cancelLogin">取消登录</button></div>
+      <div class="page-content" :class="{ 'with-player': curSong }">
+        <div class="page-heading"><div><div class="eyebrow">{{ currentNav === 'search' ? 'DISCOVER YOUR SOUND' : currentNav === 'downloads' ? 'YOUR COLLECTION' : currentNav === 'direct' ? 'ONE LINK, MORE MUSIC' : 'MAKE IT YOURS' }}</div><h1>{{ pageTitle }}</h1><p>{{ pageSubtitle }}</p></div><button v-if="currentNav === 'downloads'" class="button secondary" @click="openDir(config.downloadDir)"><AppIcon name="folder" :size="17" /> 打开下载目录</button></div>
+
+        <template v-if="currentNav === 'search'">
+          <form class="search-form" @submit.prevent="handleSearch"><AppIcon name="search" :size="21" /><input v-model="keyword" aria-label="搜索音乐或粘贴 Apple Music 链接" placeholder="搜索歌曲、歌手、专辑，或粘贴 Apple Music 链接" /><select v-model="config.country" aria-label="搜索地区" @change="saveConfig"><option v-for="region in regions" :key="region.value" :value="region.value">{{ region.label }}</option></select><button class="button primary" :disabled="isSearching || !keyword.trim()"><span v-if="isSearching" class="spinner"></span><template v-else>搜索 <AppIcon name="arrow" :size="16" /></template></button></form>
+          <div v-if="!results.length && !isSearching && !searched" class="home-content">
+            <section class="hero"><div class="hero-copy"><span class="hero-tag"><span></span> 为你的音乐收藏而设计</span><h2>好音乐，<br>值得好好收藏。</h2><p>从单曲到整张专辑，轻松保存喜欢的声音。<br>自带下载引擎，登录后即可开始。</p><button class="button dark" @click="navigate('direct')">粘贴链接开始 <AppIcon name="arrow" :size="17" /></button></div><div class="record-art" aria-hidden="true"><div class="record-sleeve"><div class="sleeve-mark">AM<span>YOUR SOUND.<br>YOUR COLLECTION.</span></div></div><div class="vinyl"><div class="vinyl-label"><AppIcon name="music" :size="32" /></div></div><div class="record-caption">A LITTLE MUSIC. A BETTER DAY.</div></div></section>
+            <div class="status-grid"><button class="status-card" @click="checkEngine"><div class="status-icon mint"><AppIcon name="shield" /></div><div><span>下载引擎</span><strong>{{ gamdlStatus.installed ? '已内置，无需安装依赖' : (checkingEngine ? '正在检查…' : '点击检查运行状态') }}</strong></div><AppIcon name="chevron" :size="16" /></button><button class="status-card" @click="handleLogin" :disabled="isLoading"><div class="status-icon lavender"><AppIcon name="user" /></div><div><span>Apple Music 账号</span><strong>{{ cookieReady ? '登录凭证已就绪' : '登录后开始下载' }}</strong></div><AppIcon name="chevron" :size="16" /></button><button class="status-card" @click="openAudio"><div class="status-icon peach"><AppIcon name="headphones" /></div><div><span>当前音质</span><strong>{{ codecLabel }} <small>{{ config.songCodec === 'alac' ? '无损' : '有损' }}</small></strong></div><AppIcon name="chevron" :size="16" /></button></div>
+            <div class="section-title"><h2>从这里开始</h2><span>三个步骤，收藏喜欢的声音</span></div><div class="steps-grid"><div v-for="(step, i) in steps" :key="i" class="step-card"><span class="step-number">0{{ i + 1 }}</span><h3>{{ step.title }}</h3><p>{{ step.text }}</p></div></div>
+            <div class="suggestions"><span>试着搜索</span><button v-for="term in ['周杰伦', 'Taylor Swift', '陈奕迅', '轻音乐']" :key="term" @click="keyword = term; handleSearch()">{{ term }} <AppIcon name="search" :size="12" /></button></div>
+          </div>
+          <div v-if="isSearching" class="empty-state"><div class="empty-icon"><span class="spinner large"></span></div><h2>正在寻找好音乐</h2><p>正在搜索所选地区的歌曲与专辑…</p></div>
+          <template v-else-if="results.length"><div class="results-toolbar"><div class="segmented"><button :class="{ selected: tab === 'song' }" @click="tab = 'song'">歌曲 <span>{{ filteredSongs.length }}</span></button><button :class="{ selected: tab === 'album' }" @click="tab = 'album'">专辑 <span>{{ filteredAlbums.length }}</span></button><button v-if="filteredDirect.length" :class="{ selected: tab === 'direct' }" @click="tab = 'direct'">链接项目 <span>{{ filteredDirect.length }}</span></button></div><span>{{ searchStatus }}</span></div>
+            <div v-if="tab === 'song'" class="music-table"><div class="music-table-head"><span>#</span><span>歌曲 / 歌手</span><span>专辑</span><span>操作</span></div><div v-for="(item, index) in filteredSongs" :key="item.id" class="music-row"><span class="row-number">{{ String(index + 1).padStart(2, '0') }}</span><div class="track-cell"><img :src="item.cover || defaultCover" alt="" @error="coverError" /><div><strong :title="item.title">{{ item.title }}</strong><span>{{ item.artist }}</span></div></div><span class="album-name" :title="item.album">{{ item.album }}</span><div class="row-actions"><button class="icon-button" :disabled="!item.previewUrl" :aria-label="curSong?.id === item.id && isPlaying ? '暂停试听' : '试听'" :title="item.previewUrl ? '试听官方预览' : '暂无试听'" @click="play(item)"><AppIcon :name="curSong?.id === item.id && isPlaying ? 'pause' : 'play'" :size="16" /></button><button class="icon-button accent" aria-label="下载歌曲" title="下载歌曲" @click="download(item)"><AppIcon name="download" :size="17" /></button></div></div><div v-if="!filteredSongs.length" class="inline-empty">当前搜索没有单曲结果，试试其他分类。</div></div>
+            <div v-if="tab === 'album'" class="album-grid"><article v-for="item in filteredAlbums" :key="item.id" class="album-card"><div class="album-cover"><img :src="item.cover || defaultCover" alt="" @error="coverError" /><button class="album-download" aria-label="下载专辑" @click="download(item)"><AppIcon name="download" /></button><span>专辑</span></div><h3 :title="item.title">{{ item.title }}</h3><p>{{ item.artist }}</p></article><p v-if="!filteredAlbums.length" class="inline-empty">当前搜索没有专辑结果。</p></div>
+            <template v-if="tab === 'direct'"><div class="panel direct-result" v-for="item in filteredDirect" :key="item.id"><div class="status-icon peach"><AppIcon name="link" /></div><div><span class="pill">{{ item.type }}</span><h3>{{ item.title }}</h3><p>{{ item.url }}</p></div><button class="button primary" @click="download(item)"><AppIcon name="download" :size="17" /> 加入下载</button></div></template>
+          </template><div v-else-if="searched && !isSearching" class="empty-state"><div class="empty-icon"><AppIcon name="search" :size="30" /></div><h2>{{ searchFailed ? '暂时无法完成搜索' : '还没有找到匹配的音乐' }}</h2><p>{{ searchStatus || '换个关键词或搜索地区再试一次，也可以直接粘贴音乐链接。' }}</p><button class="button secondary" @click="searched = false; keyword = ''">返回发现</button></div>
+        </template>
+
+        <template v-if="currentNav === 'direct'"><div class="two-column"><section class="panel link-panel"><div class="panel-heading"><div class="status-icon peach"><AppIcon name="link" /></div><div><h2>粘贴 Apple Music 链接</h2><p>支持歌曲、专辑、歌单和音乐视频，每行一个。</p></div></div><textarea v-model="batchUrlsText" aria-label="批量音乐链接" placeholder="https://music.apple.com/cn/album/...&#10;&#10;在这里粘贴更多链接，每行一个" rows="10"></textarea><div class="link-footer"><span>{{ batchUrlCount }} 个链接 · 最多同时下载 2 个任务</span><button class="button primary" :disabled="!batchUrlsText.trim()" @click="handleBatchDownload"><AppIcon name="download" :size="17" /> 加入下载队列</button></div></section><aside class="guide-panel"><span class="eyebrow">QUICK GUIDE</span><h2>把喜欢的音乐<br>带回来。</h2><ol><li><strong>复制链接</strong><p>在 Apple Music 中点击“分享”，复制歌曲或专辑链接。</p></li><li><strong>粘贴并加入队列</strong><p>多个链接分行粘贴，程序会依次处理。</p></li><li><strong>到下载列表查看进度</strong><p>完成后可直接打开保存文件夹。</p></li></ol><div class="subtle-note"><AppIcon name="info" :size="16" /><span>默认 AAC 有损音质。无损 ALAC 需要在设置中连接 Wrapper 服务。</span></div></aside></div></template>
+
+        <template v-if="currentNav === 'downloads'"><div class="download-stats"><div><span class="stat-dot blue"></span><strong>{{ activeTasksCount }}</strong><span>进行中 / 等待</span></div><div><span class="stat-dot green"></span><strong>{{ completedCount }}</strong><span>已完成</span></div><div><span class="stat-dot red"></span><strong>{{ failedCount }}</strong><span>需要处理</span></div><button class="text-button" :disabled="!completedCount" @click="clearFinishedTasks"><AppIcon name="trash" :size="15" /> 清理已完成</button></div><div class="results-toolbar"><div class="segmented"><button v-for="filter in taskFilters" :key="filter.value" :class="{ selected: taskFilter === filter.value }" @click="taskFilter = filter.value">{{ filter.label }}</button></div><span>最多 2 个任务同时下载</span></div><div v-if="!visibleTasks.length" class="empty-state"><div class="empty-icon"><AppIcon name="download" :size="30" /></div><h2>{{ tasks.length ? '这个分类还没有任务' : '你的音乐收藏，从这里开始' }}</h2><p>{{ tasks.length ? '换个分类查看其他任务。' : '搜索音乐，或粘贴链接加入下载队列。' }}</p><button v-if="!tasks.length" class="button primary" @click="navigate('search')">去发现音乐 <AppIcon name="arrow" :size="16" /></button></div><div class="task-list"><article v-for="task in visibleTasks" :key="task.id" class="task-card"><div :class="['task-art', task.status]"><img v-if="task.cover" :src="task.cover" alt="" @error="task.cover = ''" /><AppIcon v-else :name="task.status === 'success' ? 'check' : 'music'" :size="23" /></div><div class="task-info"><div class="task-title"><h3 :title="task.title">{{ task.title }}</h3><span class="codec-tag">{{ task.codec.toUpperCase() }}</span></div><p>{{ task.artist || 'Apple Music 链接任务' }}</p><div v-if="['downloading', 'cancelling'].includes(task.status)" class="progress-track"><div :class="{ indeterminate: !task.percent }" :style="task.percent ? { width: task.percent + '%' } : {}"></div></div><span :class="['task-status', task.status]">{{ task.status === 'queued' ? '等待下载' : task.status === 'success' ? '已完成' : task.status === 'cancelled' ? '已取消' : task.status === 'downloading' ? (task.prog || task.msg) : task.msg }}</span></div><div class="task-actions"><button v-if="['queued', 'downloading'].includes(task.status)" class="icon-button" aria-label="取消任务" title="取消任务" @click="cancelTask(task)"><AppIcon name="close" :size="17" /></button><button v-if="['error', 'cancelled'].includes(task.status)" class="icon-button" aria-label="重试任务" title="重试任务" @click="retryTask(task)"><AppIcon name="refresh" :size="17" /></button><button class="icon-button" aria-label="打开保存目录" title="打开保存目录" @click="openDir(task.saveDir)"><AppIcon name="folder" :size="18" /></button><button v-if="!['queued', 'downloading', 'cancelling'].includes(task.status)" class="icon-button muted" aria-label="移除任务" title="移除任务" @click="removeTask(task.id)"><AppIcon name="trash" :size="16" /></button></div><details v-if="task.logs" class="task-logs"><summary>查看详细日志</summary><pre>{{ cleanLogs(task.logs) }}</pre></details></article></div></template>
+
+        <template v-if="currentNav === 'settings'"><div class="settings-layout"><div class="settings-nav"><button v-for="item in settingTabs" :key="item.value" :class="{ selected: settingsTab === item.value }" @click="settingsTab = item.value"><AppIcon :name="item.icon" :size="17" />{{ item.label }}</button></div><div class="settings-content">
+          <section v-if="settingsTab === 'general'" class="panel settings-card"><div class="card-title"><h2>下载偏好</h2><p>选择音乐保存的位置和随附内容。</p></div><label class="field"><span>保存位置</span><div class="input-group"><input v-model="draft.downloadDir" readonly aria-label="下载保存位置" /><button class="button secondary" @click="selectDownloadDir"><AppIcon name="folder" :size="16" /> 更改</button></div><small>音乐将按歌手与专辑自动整理。</small></label><label class="field"><span>同步歌词</span><select v-model="draft.syncedLyricsFormat"><option value="lrc">LRC · 常用歌词格式</option><option value="ttml">TTML · 原生歌词格式</option><option value="srt">SRT · 字幕格式</option><option value="none">不保存歌词</option></select></label><div class="switch-row" v-for="option in extraOptions" :key="option.key"><div><strong>{{ option.label }}</strong><p>{{ option.description }}</p></div><label class="switch"><input type="checkbox" v-model="draft[option.key]" :aria-label="option.label" /><span></span></label></div></section>
+          <section v-if="settingsTab === 'audio'" class="panel settings-card"><div class="card-title"><h2>选择你的聆听方式</h2><p>默认模式可直接使用。高阶音质需要额外服务或相应音源支持。</p></div><div class="codec-options"><button v-for="codec in codecs" :key="codec.value" :class="['codec-option', { selected: draft.songCodec === codec.value }]" @click="selectCodec(codec.value)"><div class="codec-radio"></div><div><strong>{{ codec.label }} <span v-if="codec.badge" class="pill">{{ codec.badge }}</span></strong><p>{{ codec.description }}</p></div><AppIcon :name="codec.icon" :size="23" /></button></div><div class="switch-row"><div><strong>连接 Wrapper v2</strong><p>ALAC 无损下载需要独立部署并登录此服务。</p></div><label class="switch"><input type="checkbox" v-model="draft.useWrapper" aria-label="连接 Wrapper v2" /><span></span></label></div><div v-if="draft.useWrapper" class="wrapper-fields"><div class="notice"><AppIcon name="info" :size="18" /><p>需要已登录的 Wrapper v2（API 0.0.2）。服务运行在 Linux 环境，不包含在 Windows 安装包中。选择 ALAC 后不会自动回退到 AAC。</p></div><label class="field"><span>服务地址</span><input v-model="draft.wrapperUrl" placeholder="http://127.0.0.1:20020" /></label><div class="field-grid"><label class="field"><span>TCP 主机</span><input v-model="draft.wrapperDecryptHost" placeholder="127.0.0.1" /></label><label class="field"><span>TCP 端口</span><input v-model.number="draft.wrapperDecryptPort" type="number" min="1" max="65535" /></label></div><button class="button secondary" @click="testWrapper" :disabled="checkingWrapper"><AppIcon name="refresh" :size="16" />{{ checkingWrapper ? '正在检查…' : '检查连接' }}</button><p :class="['connection-result', { success: wrapperReady }]" role="status">{{ wrapperMessage }}</p></div></section>
+          <section v-if="settingsTab === 'advanced'" class="panel settings-card"><div class="card-title"><h2>运行状态与高级选项</h2><p>完整发行包已包含下载引擎，普通使用无需配置这些项目。</p></div><div :class="['runtime-card', { ready: gamdlStatus.installed }]"><AppIcon name="shield" :size="27" /><div><strong>{{ gamdlStatus.installed ? '内置下载引擎已就绪' : '检查下载引擎' }}</strong><p>{{ gamdlStatus.version || gamdlStatus.error || '正在检测…' }}</p></div><button class="button secondary" :disabled="checkingEngine" @click="checkEngine">重新检查</button></div><button class="text-button" @click="checkEnvironment" :disabled="checkingEnvironment">{{ checkingEnvironment ? '正在检查…' : '查看完整诊断' }}<AppIcon name="chevron" :size="14" /></button><pre v-if="environmentMessage" class="diagnostic" role="status">{{ environmentMessage }}</pre><details class="advanced-details"><summary>自定义外部工具（可选）</summary><label class="field" v-for="option in binaryOptions" :key="option.key"><span>{{ option.label }}</span><div class="input-group"><input v-model="draft[option.key]" :placeholder="option.placeholder" /><button class="button secondary" @click="selectBinary(option.key)">浏览</button></div></label><p class="field-hint">留空使用内置默认流程。FFmpeg 和 N_m3u8DL-RE 仅用于相应的可选功能。</p><label v-if="!isPackaged" class="field"><span>开发环境 Python 路径</span><input v-model="draft.pythonPath" placeholder="仅在没有内置引擎的开发环境中使用" /></label></details></section>
+          <section v-if="settingsTab === 'about'" class="panel settings-card about-card"><div class="brand-icon large-logo"><AppIcon name="music" :size="35" /></div><h2>AM Downloader</h2><p>Apple Music 下载器 · v{{ appVersion }}</p><span class="pill">Windows x64 完整发行版</span><div class="about-copy"><p>基于开源 gamdl 引擎构建的独立桌面客户端，帮助你整理和保存喜欢的音乐。</p><p>包含独立 Python 运行时、gamdl 3.9.1 与所需下载组件。无需安装开发工具。请使用你自己的有效 Apple Music 订阅。</p><p>这是非官方客户端，与 Apple Inc. 无隶属关系。第三方组件许可随程序提供，位于安装目录的 resources/engine/licenses。</p></div></section>
+          <div v-if="settingsTab !== 'about'" class="settings-save"><span>更改将在保存后应用于新任务</span><button class="button primary" @click="saveSettings" :disabled="saving"><AppIcon name="check" :size="16" />{{ saving ? '正在保存…' : '保存设置' }}</button></div>
+        </div></div></template>
       </div>
-
-      <div class="header-right">
-        <button class="status-btn" :class="{ active: cookieReady }" @click="handleLogin" :disabled="isLoading">
-          {{ isLoading ? '🔄 登录中...' : (cookieReady ? '✅ 凭证就绪 (点击刷新)' : '🔑 登录 Apple Music') }}
-        </button>
-        <button class="icon-btn highlight" @click="showDownloads = true">
-          📥 下载列表 <span v-if="activeTasksCount > 0">({{ activeTasksCount }})</span>
-        </button>
-        <button class="icon-btn" @click="showSettings = true">⚙️ 设置</button>
-      </div>
-    </div>
-
-    <!-- 主界面布局 -->
-    <div class="main-layout" v-if="!isChecking">
-      <!-- 左侧边栏 -->
-      <div class="sidebar">
-        <div class="sidebar-group">
-          <h3>导航</h3>
-          <ul>
-            <li :class="{ active: currentNav === 'search' }" @click="currentNav = 'search'">
-              🔍 搜索发现
-            </li>
-            <li :class="{ active: currentNav === 'direct' }" @click="currentNav = 'direct'">
-              🔗 直链下载
-            </li>
-            <li :class="{ active: currentNav === 'settings' }" @click="showSettings = true">
-              ⚙️ 参数设置
-            </li>
-          </ul>
-        </div>
-
-        <div class="sidebar-footer">
-          <div class="engine-badge" :class="{ ready: gamdlStatus.installed }">
-            <span class="dot"></span>
-            <span>{{ gamdlStatus.installed ? (gamdlStatus.version || 'gamdl 内核就绪') : '未检测到 gamdl' }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 右侧主内容区 -->
-      <div class="content">
-        <!-- 视图 1: 搜索发现 -->
-        <div v-if="currentNav === 'search'">
-          <div class="search-info" v-if="searchStatus">{{ searchStatus }}</div>
-          
-          <div class="tabs" v-if="results.length > 0">
-            <div class="tab" :class="{ active: tab === 'song' }" @click="tab = 'song'">
-              🎵 单曲 ({{ filteredSongs.length }})
-            </div>
-            <div class="tab" :class="{ active: tab === 'album' }" @click="tab = 'album'">
-              💿 专辑 ({{ filteredAlbums.length }})
-            </div>
-            <div class="tab" v-if="filteredDirect.length > 0" :class="{ active: tab === 'direct' }" @click="tab = 'direct'">
-              🔗 直链项目 ({{ filteredDirect.length }})
-            </div>
-          </div>
-
-          <!-- 单曲列表 -->
-          <div class="list-view" v-if="tab === 'song' && filteredSongs.length > 0">
-            <div class="list-head">
-              <div class="c-tt">歌曲名称</div>
-              <div class="c-ar">歌手</div>
-              <div class="c-al">所属专辑</div>
-              <div class="c-pl">试听</div>
-              <div class="c-dl">操作</div>
-            </div>
-            <div class="list-row" v-for="item in filteredSongs" :key="item.id">
-              <div class="c-tt">
-                <img :src="item.cover || defaultCover" />
-                <span class="ellipsis" :title="item.title">{{ item.title }}</span>
-              </div>
-              <div class="c-ar ellipsis" :title="item.artist">{{ item.artist }}</div>
-              <div class="c-al ellipsis" :title="item.album">{{ item.album }}</div>
-              <div class="c-pl">
-                <button class="btn-sm" @click="play(item)" :disabled="!item.previewUrl" :title="item.previewUrl ? '播放试听片段' : '无试听片段'">
-                  {{ curSong?.id === item.id && isPlaying ? '⏸' : '▶️' }}
-                </button>
-              </div>
-              <div class="c-dl">
-                <button class="btn-dl" @click="download(item)">下载</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 专辑网格 -->
-          <div class="grid-view" v-if="tab === 'album' && filteredAlbums.length > 0">
-            <div class="album-card" v-for="item in filteredAlbums" :key="item.id">
-              <div class="cover-container">
-                <img :src="item.cover || defaultCover" />
-                <div class="overlay">
-                  <button @click="download(item)">📥 下载整张专辑</button>
-                </div>
-              </div>
-              <div class="card-info">
-                <div class="card-tt ellipsis" :title="item.title">{{ item.title }}</div>
-                <div class="card-ar ellipsis" :title="item.artist">{{ item.artist }}</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 直链识别结果 -->
-          <div class="direct-results" v-if="tab === 'direct' && filteredDirect.length > 0">
-            <div class="direct-card" v-for="item in filteredDirect" :key="item.id">
-              <div class="direct-info">
-                <h3>🔗 {{ item.title }}</h3>
-                <p>{{ item.artist }} | {{ item.url }}</p>
-              </div>
-              <button class="btn-dl" @click="download(item)">立即下载</button>
-            </div>
-          </div>
-
-          <!-- 空白欢迎状态 -->
-          <div class="welcome-box" v-if="results.length === 0 && !isSearching">
-            <div class="welcome-icon">🎧</div>
-            <h2>欢迎使用 Apple Music 下载器</h2>
-            <p>在上方搜索框输入歌曲名、歌手，或直接粘贴 Apple Music 网页链接开始体验高品质音频下载。</p>
-            <div class="quick-tips">
-              <span>💡 提示：在右上角设置中可切换音质编码 (AAC / ALAC / Atmos) 与歌词格式。</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 视图 2: 批量链接直下 -->
-        <div v-if="currentNav === 'direct'" class="direct-download-view">
-          <h2>🔗 批量链接直链下载</h2>
-          <p class="section-desc">支持输入单曲、专辑、歌单或音乐视频链接（每行一个）：</p>
-          <textarea 
-            v-model="batchUrlsText" 
-            placeholder="例如:&#10;https://music.apple.com/cn/album/song-name/123456789&#10;https://music.apple.com/us/playlist/todays-hits/pl.xxxxx"
-            rows="8"
-            class="batch-textarea"
-          ></textarea>
-          <div class="direct-actions">
-            <button class="btn-dl primary" @click="handleBatchDownload" :disabled="!batchUrlsText.trim()">
-              🚀 全部加入下载队列
-            </button>
-            <button class="btn-sm" @click="batchUrlsText = ''">清空输入</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 底部音乐播放器 -->
-    <div class="player" v-if="curSong">
-      <div class="p-left">
-        <img :src="curSong.cover || defaultCover" />
-        <div class="ellipsis">
-          <b>{{ curSong.title }}</b><br>
-          <span>{{ curSong.artist }}</span>
-        </div>
-      </div>
-      <div class="p-mid">
-        <button class="p-ctrl" @click="togglePlay">{{ isPlaying ? '⏸' : '▶️' }}</button>
-        <div class="p-bar">
-          <span>{{ fmt(curTime) }}</span>
-          <input type="range" min="0" :max="duration || 100" step="0.1" v-model="curTime" @input="seek" />
-          <span>{{ fmt(duration) }}</span>
-        </div>
-      </div>
-      <div class="p-right">
-        <span>🔊</span>
-        <input type="range" min="0" max="1" step="0.01" v-model="vol" @input="vChange" />
-      </div>
-    </div>
-    <audio ref="audio" :src="curUrl" @timeupdate="curTime = $refs.audio.currentTime" @loadedmetadata="duration = $refs.audio.duration" @ended="isPlaying = false"></audio>
-
-    <!-- 下载任务侧边抽屉 -->
-    <div class="modal-overlay" v-if="showDownloads" @click.self="showDownloads = false">
-      <div class="download-panel">
-        <div class="panel-header">
-          <h3>📥 下载任务列表 ({{ tasks.length }})</h3>
-          <div class="panel-header-actions">
-            <button class="text-btn" @click="clearFinishedTasks" v-if="hasFinishedTasks">清空已完成</button>
-            <span class="close-btn" @click="showDownloads = false">✖</span>
-          </div>
-        </div>
-        <div class="task-list">
-          <div v-if="tasks.length === 0" class="empty-hint">暂无下载任务</div>
-          <div class="task-card" v-for="t in tasks" :key="t.id">
-            <div class="task-main">
-              <div class="task-tt ellipsis" :title="t.title">{{ t.title }}</div>
-              <div class="task-st">
-                <span v-if="t.status === 'downloading'" class="badge blue">⏳ {{ t.prog || '分析解析中...' }}</span>
-                <span v-else-if="t.status === 'success'" class="badge green">✅ 下载完成</span>
-                <span v-else class="badge red" :title="t.msg">❌ {{ t.msg || '错误' }}</span>
-              </div>
-            </div>
-            <div class="task-actions">
-              <button v-if="t.status === 'downloading'" class="cancel-btn" @click="cancelTask(t)">⏹ 终止</button>
-              <button v-if="t.status === 'error'" class="retry-btn" @click="retryTask(t)">🔁 重试</button>
-              <button class="open-btn" @click="openDir(t.saveDir)" title="打开文件所在目录">📁</button>
-              <button class="remove-btn" @click="removeTask(t.id)" v-if="t.status !== 'downloading'">🗑️</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 设置模态窗口 -->
-    <div class="modal-overlay" v-if="showSettings" @click.self="showSettings = false">
-      <div class="settings-modal">
-        <div class="settings-header">
-          <h3>⚙️ 下载与核心参数设置</h3>
-          <span class="close-btn" @click="showSettings = false">✖</span>
-        </div>
-        
-        <div class="settings-body">
-          <div class="form-group">
-            <label>默认下载目录</label>
-            <div class="path-input-row">
-              <input type="text" v-model="config.downloadDir" readonly />
-              <button class="btn-sm" @click="selectDownloadDir">浏览目录</button>
-              <button class="btn-sm" @click="openDir(config.downloadDir)">打开</button>
-            </div>
-          </div>
-
-          <div class="form-row-2">
-            <div class="form-group">
-              <label>默认搜索地区 (Storefront)</label>
-              <select v-model="config.country" class="form-select">
-                <option value="cn">🇨🇳 中国 (CN)</option>
-                <option value="us">🇺🇸 美国 (US)</option>
-                <option value="jp">🇯🇵 日本 (JP)</option>
-                <option value="hk">🇭🇰 香港 (HK)</option>
-                <option value="tw">🇹🇼 台湾 (TW)</option>
-                <option value="gb">🇬🇧 英国 (GB)</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label>音频编码偏好 (--song-codec-priority)</label>
-              <select v-model="config.songCodec" class="form-select">
-                <option value="aac-web">AAC-Web (256kbps 推荐/最稳定)</option>
-                <option value="aac">AAC (默认标准)</option>
-                <option value="alac">ALAC (无损音质)</option>
-                <option value="atmos">ATMOS (杜比全景声)</option>
-                <option value="ac3">AC3 (5.1 环绕声)</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-row-2">
-            <div class="form-group">
-              <label>逐字同步歌词格式 (--synced-lyrics-format)</label>
-              <select v-model="config.syncedLyricsFormat" class="form-select">
-                <option value="lrc">LRC (常用格式)</option>
-                <option value="ttml">TTML (逐字精细时轴)</option>
-                <option value="srt">SRT (字幕格式)</option>
-                <option value="none">不下载歌词文件</option>
-              </select>
-            </div>
-
-            <div class="form-group">
-              <label>附加选项</label>
-              <div class="checkbox-list">
-                <label class="checkbox-label">
-                  <input type="checkbox" v-model="config.saveCover" /> 保存独立专辑封面图片 (-s)
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" v-model="config.savePlaylist" /> 生成 M3U8 播放列表文件
-                </label>
-                <label class="checkbox-label">
-                  <input type="checkbox" v-model="config.overwrite" /> 覆盖同名已有文件
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <div class="form-divider">高级依赖配置 (可选)</div>
-
-          <div class="form-group">
-            <label>自定义 FFmpeg 路径 (留空使用系统 PATH)</label>
-            <div class="path-input-row">
-              <input type="text" v-model="config.ffmpegPath" placeholder="例如: C:\ffmpeg\bin\ffmpeg.exe" />
-              <button class="btn-sm" @click="selectBinary('ffmpegPath')">浏览</button>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>自定义 N_m3u8DL-RE 路径 (留空使用系统 PATH)</label>
-            <div class="path-input-row">
-              <input type="text" v-model="config.nm3u8dlrePath" placeholder="例如: N_m3u8DL-RE.exe" />
-              <button class="btn-sm" @click="selectBinary('nm3u8dlrePath')">浏览</button>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>Widevine 设备文件 (.wvd 路径，用于特定高阶解密)</label>
-            <div class="path-input-row">
-              <input type="text" v-model="config.wvdPath" placeholder="例如: device.wvd" />
-              <button class="btn-sm" @click="selectBinary('wvdPath')">浏览</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="settings-footer">
-          <button class="btn-dl primary" @click="saveSettingsAndClose">保存设置</button>
-        </div>
-      </div>
-    </div>
+      <footer v-if="curSong" class="player"><div class="player-song"><img :src="curSong.cover || defaultCover" alt="" @error="coverError" /><div><strong>{{ curSong.title }}</strong><span>{{ curSong.artist }} · 官方试听片段</span></div></div><button class="player-play" :aria-label="isPlaying ? '暂停' : '播放'" @click="togglePlay"><AppIcon :name="isPlaying ? 'pause' : 'play'" :size="18" /></button><span class="player-time">{{ fmt(curTime) }}</span><input class="player-seek" aria-label="试听进度" type="range" min="0" :max="duration || 1" step="0.1" v-model.number="curTime" @input="seek" /><span class="player-time">{{ fmt(duration) }}</span><AppIcon name="volume" :size="18" /><input class="player-volume" aria-label="音量" type="range" min="0" max="1" step="0.01" v-model.number="vol" @input="vChange" /><button class="icon-button" aria-label="关闭试听" @click="closePlayer"><AppIcon name="close" :size="16" /></button></footer>
+    </main>
+    <audio ref="audio" :src="curUrl" @timeupdate="curTime = $refs.audio.currentTime" @loadedmetadata="duration = $refs.audio.duration" @ended="isPlaying = false" @error="isPlaying = false"></audio>
+    <Transition name="toast"><div v-if="toastMessage" :class="['toast-message', { error: toastError }]" role="status"><AppIcon :name="toastError ? 'info' : 'check'" :size="18" /><span>{{ toastMessage }}</span><button class="icon-button" aria-label="关闭提示" @click="toastMessage = ''"><AppIcon name="close" :size="15" /></button></div></Transition>
   </div>
 </template>
 
 <script>
-const { ipcRenderer } = window.require('electron');
-
+import AppIcon from './components/AppIcon.vue';
+const { TaskQueue } = require('./taskQueue');
+const api = window.musicAPI;
+const copy = value => JSON.parse(JSON.stringify(value));
+const defaultConfig = { downloadDir: '', country: 'cn', songCodec: 'aac-web', syncedLyricsFormat: 'lrc',
+  saveCover: false, savePlaylist: false, overwrite: false, ffmpegPath: '', nm3u8dlrePath: '', wvdPath: '',
+  pythonPath: '', useWrapper: false, wrapperUrl: 'http://127.0.0.1', wrapperDecryptHost: '127.0.0.1', wrapperDecryptPort: 10020 };
 export default {
+  components: { AppIcon },
   data() {
     return {
-      isChecking: true,
-      currentNav: 'search',
-      keyword: '',
-      isSearching: false,
-      results: [],
-      tab: 'song',
-      searchStatus: '',
-      cookieReady: false,
-      tasks: [],
-      showDownloads: false,
-      showSettings: false,
-      batchUrlsText: '',
-      curSong: null,
-      curUrl: '',
-      isPlaying: false,
-      curTime: 0,
-      duration: 0,
-      vol: 0.8,
-      isLoading: false,
-      gamdlStatus: { installed: true, version: '' },
-      defaultCover: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="%23d1d1d6"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
-      config: {
-        downloadDir: '',
-        country: 'cn',
-        songCodec: 'aac-web',
-        syncedLyricsFormat: 'lrc',
-        saveCover: false,
-        savePlaylist: false,
-        overwrite: false,
-        ffmpegPath: '',
-        nm3u8dlrePath: '',
-        wvdPath: ''
-      }
+      currentNav: 'search', settingsTab: 'general', appVersion: '1.3.0', isPackaged: true,
+      config: { ...defaultConfig }, draft: { ...defaultConfig },
+      keyword: '', results: [], tab: 'song', isSearching: false, searched: false, searchFailed: false, searchStatus: '',
+      cookieReady: false, isLoading: false, loginMessage: '', checkingEngine: true,
+      gamdlStatus: { installed: false, version: '' }, checkingEnvironment: false, environmentMessage: '',
+      checkingWrapper: false, wrapperMessage: '', wrapperReady: false, saving: false,
+      batchUrlsText: '', tasks: [], taskFilter: 'all',
+      curSong: null, curUrl: '', isPlaying: false, curTime: 0, duration: 0, vol: 0.8,
+      toastMessage: '', toastError: false,
+      defaultCover: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect width="120" height="120" rx="16" fill="#eeeaf1"/><path d="M52 76V35l32-6v38M52 44l32-6" stroke="#a899ac" stroke-width="6" fill="none"/><ellipse cx="43" cy="77" rx="12" ry="9" fill="#a899ac"/><ellipse cx="75" cy="68" rx="12" ry="9" fill="#a899ac"/></svg>'),
+      navItems: [{ id: 'search', label: '发现音乐', icon: 'search' }, { id: 'direct', label: '链接下载', icon: 'link' },
+        { id: 'downloads', label: '下载列表', icon: 'download' }, { id: 'settings', label: '偏好设置', icon: 'settings' }],
+      regions: [{ value: 'cn', label: '中国大陆' }, { value: 'us', label: '美国' }, { value: 'jp', label: '日本' },
+        { value: 'hk', label: '中国香港' }, { value: 'tw', label: '中国台湾' }, { value: 'gb', label: '英国' }],
+      steps: [{ title: '登录你的账号', text: '在内置的 Apple Music 窗口中登录，无需额外安装浏览器。' },
+        { title: '发现想收藏的音乐', text: '按歌曲、歌手或专辑搜索，也可以直接粘贴分享链接。' },
+        { title: '开始下载，自动整理', text: '下载列表随时查看进度，音乐按歌手和专辑保存。' }],
+      taskFilters: [{ value: 'all', label: '全部任务' }, { value: 'active', label: '进行中' }, { value: 'success', label: '已完成' }, { value: 'error', label: '需要处理' }],
+      settingTabs: [{ value: 'general', label: '下载偏好', icon: 'download' }, { value: 'audio', label: '音质与服务', icon: 'headphones' },
+        { value: 'advanced', label: '运行状态', icon: 'shield' }, { value: 'about', label: '关于软件', icon: 'info' }],
+      extraOptions: [{ key: 'saveCover', label: '保存专辑封面', description: '在专辑目录保留独立的封面图片。' },
+        { key: 'savePlaylist', label: '生成播放列表', description: '同时保存 M3U8 播放列表文件。' },
+        { key: 'overwrite', label: '覆盖已有文件', description: '默认跳过已保存的音乐，避免重复下载。' }],
+      codecs: [{ value: 'aac-web', label: 'AAC 标准音质', badge: '推荐', description: '有损 · 最高约 256 kbps · 登录后即可使用', icon: 'music' },
+        { value: 'alac', label: 'ALAC 无损音质', badge: '需连接服务', description: '无损 · 最高 24-bit / 192 kHz · 取决于音源', icon: 'headphones' },
+        { value: 'atmos', label: 'Dolby Atmos', description: '杜比全景声 · 需曲目及账号支持', icon: 'spark' },
+        { value: 'aac', label: 'AAC 原生音质', description: '有损 · 最高约 256 kbps · 需曲目及账号支持', icon: 'music' },
+        { value: 'ac3', label: 'AC3 环绕声', description: '5.1 环绕声 · 需曲目及账号支持', icon: 'headphones' }],
+      binaryOptions: [{ key: 'ffmpegPath', label: 'FFmpeg 路径', placeholder: '可选，默认流程无需设置' },
+        { key: 'nm3u8dlrePath', label: 'N_m3u8DL-RE 路径', placeholder: '可选，默认流程无需设置' },
+        { key: 'wvdPath', label: 'Widevine 设备文件', placeholder: '可选，使用自有 .wvd 文件' }]
     };
   },
   computed: {
-    filteredSongs() {
-      return this.results.filter(i => i.type === '歌曲');
-    },
-    filteredAlbums() {
-      return this.results.filter(i => i.type === '专辑');
-    },
-    filteredDirect() {
-      return this.results.filter(i => i.isDirectUrl);
-    },
-    activeTasksCount() {
-      return this.tasks.filter(t => t.status === 'downloading').length;
-    },
-    hasFinishedTasks() {
-      return this.tasks.some(t => t.status === 'success');
-    }
+    pageTitle() { return this.navItems.find(item => item.id === this.currentNav)?.label || '发现音乐'; },
+    pageSubtitle() { return { search: '找到喜欢的声音，慢慢收藏。', direct: '一个链接，开始收藏。一组链接，也一样简单。', downloads: '每一个下载任务，都在这里井然有序。', settings: '让音乐下载，更合你的习惯。' }[this.currentNav]; },
+    codecLabel() { return this.config.songCodec === 'aac-web' ? 'AAC 标准音质' : this.config.songCodec.toUpperCase(); },
+    filteredSongs() { return this.results.filter(item => item.type === '歌曲' && !item.isDirectUrl); },
+    filteredAlbums() { return this.results.filter(item => item.type === '专辑' && !item.isDirectUrl); },
+    filteredDirect() { return this.results.filter(item => item.isDirectUrl); },
+    activeTasksCount() { return this.tasks.filter(task => ['queued', 'downloading', 'cancelling'].includes(task.status)).length; },
+    completedCount() { return this.tasks.filter(task => task.status === 'success').length; },
+    failedCount() { return this.tasks.filter(task => ['error', 'cancelled'].includes(task.status)).length; },
+    visibleTasks() { return this.tasks.filter(task => this.taskFilter === 'all' || (this.taskFilter === 'active' ? ['queued', 'downloading', 'cancelling'].includes(task.status) : this.taskFilter === 'error' ? ['error', 'cancelled'].includes(task.status) : task.status === this.taskFilter)); },
+    batchUrlCount() { return this.batchUrlsText.split(/\r?\n/).filter(line => line.trim()).length; }
   },
   async mounted() {
+    this.queue = new TaskQueue({
+      run: task => api.invoke('start-download-task', copy(task)),
+      cancel: id => api.invoke('cancel-download', id),
+      update: (id, patch) => { const task = this.tasks.find(item => item.id === id); if (task) Object.assign(task, patch); }
+    });
+    this.unsubscribeLogin = api.on('login-log', (_event, message) => { this.loginMessage = message; });
+    this.unsubscribeProgress = api.on('download-progress', (_event, progress) => {
+      const task = this.tasks.find(item => item.id === progress.id);
+      if (!task || !['downloading', 'cancelling'].includes(task.status)) return;
+      task.logs = ((task.logs || '') + progress.text).slice(-65536);
+      const text = this.cleanLogs(progress.text);
+      const percentage = text.match(/(\d+(?:\.\d+)?)%/);
+      const track = text.match(/Track\s*(\d+)\s*\/\s*(\d+)/i);
+      if (percentage) { task.percent = Math.min(100, Number(percentage[1])); task.prog = (track ? `第 ${track[1]}/${track[2]} 首 · ` : '') + `${task.percent}%`; }
+      else if (/Downloading/i.test(text)) task.prog = '正在下载音乐…';
+    });
     try {
-      const [ck, cfg, gStatus] = await Promise.all([
-        ipcRenderer.invoke('check-cookie'),
-        ipcRenderer.invoke('get-config'),
-        ipcRenderer.invoke('check-gamdl')
-      ]);
-
-      this.cookieReady = ck.valid;
-      if (cfg) {
-        this.config = { ...this.config, ...cfg };
-      }
-      if (gStatus) {
-        this.gamdlStatus = gStatus;
-      }
-
-      // 实时监听来自主进程的下载进度
-      ipcRenderer.on('download-progress', (e, d) => {
-        const t = this.tasks.find(x => x.id === d.id);
-        if (t && t.status === 'downloading') {
-          // 清理 ANSI 颜色字符
-          // eslint-disable-next-line no-control-regex
-          const cleanText = d.text.replace(/\x1B\[[0-9;]*[mK]/g, '').trim();
-
-          // 抓取曲目索引 (例如 Track 2/10 或 2/10)
-          const trackMatch = cleanText.match(/Track\s*(\d+)\s*\/\s*(\d+)/i) || cleanText.match(/(\d+)\/(\d+)/);
-          if (trackMatch) {
-            const curr = parseInt(trackMatch[1], 10);
-            const total = parseInt(trackMatch[2], 10);
-            if (total > 0 && total < 300 && curr > 0) {
-              t.albumProgress = `${Math.min(curr, total)}/${total}`;
-            }
-          }
-
-          // 抓取正在下载的单曲名称
-          const downloadingSongMatch = cleanText.match(/Downloading\s*"([^"]+)"/i);
-          if (downloadingSongMatch) {
-            t.currentTrackTitle = downloadingSongMatch[1];
-          }
-
-          // 抓取百分比
-          const pctMatch = cleanText.match(/(\d+\.?\d*)%/);
-          if (pctMatch) {
-            const prefix = t.albumProgress ? `[第 ${t.albumProgress} 首] ` : '';
-            t.prog = `${prefix}${pctMatch[0]}`;
-          } else if (cleanText.toLowerCase().includes('downloaded') || cleanText.toLowerCase().includes('already exists')) {
-            const prefix = t.albumProgress ? `[第 ${t.albumProgress} 首] ` : '';
-            t.prog = `${prefix}100%`;
-          }
-        }
-      });
-    } catch (err) {
-      console.error('初始化失败:', err);
-    } finally {
-      this.isChecking = false;
-    }
+      const [config, cookie, info] = await Promise.all([api.invoke('get-config'), api.invoke('check-cookie'), api.invoke('get-app-info')]);
+      this.config = { ...defaultConfig, ...config }; this.draft = copy(this.config);
+      this.cookieReady = cookie.valid; this.appVersion = info.version; this.isPackaged = info.packaged;
+    } catch (error) { this.notify('读取设置失败：' + error.message, true); }
+    this.checkEngine();
   },
+  beforeUnmount() { this.unsubscribeLogin?.(); this.unsubscribeProgress?.(); clearTimeout(this.toastTimer); },
   methods: {
-    resetView() {
-      this.results = [];
-      this.searchStatus = '';
-      this.currentNav = 'search';
+    navigate(page) { if (page === 'settings' && this.currentNav !== 'settings') this.draft = copy(this.config); this.currentNav = page; },
+    openAudio() { this.navigate('settings'); this.settingsTab = 'audio'; },
+    notify(message, error = false) { clearTimeout(this.toastTimer); this.toastMessage = message; this.toastError = error; this.toastTimer = setTimeout(() => { this.toastMessage = ''; }, error ? 8000 : 4000); },
+    coverError(event) { event.target.onerror = null; event.target.src = this.defaultCover; },
+    async checkEngine() { this.checkingEngine = true; try { this.gamdlStatus = await api.invoke('check-gamdl'); } catch (error) { this.gamdlStatus = { installed: false, error: error.message }; } finally { this.checkingEngine = false; } },
+    async saveConfig() { try { const saved = await api.invoke('set-config', copy(this.config)); if (!saved) throw new Error('无法写入配置'); this.config = saved; } catch (error) { this.notify('设置保存失败：' + error.message, true); } },
+    async saveSettings() {
+      if (!this.draft.downloadDir) return this.notify('请先选择下载目录', true);
+      if (this.draft.songCodec === 'alac' && !this.draft.useWrapper) return this.notify('ALAC 无损下载需要启用 Wrapper 服务', true);
+      this.saving = true;
+      try { const saved = await api.invoke('set-config', copy(this.draft)); if (!saved) throw new Error('无法写入配置'); this.config = saved; this.draft = copy(saved); this.notify('设置已保存'); }
+      catch (error) { this.notify('设置保存失败：' + error.message, true); } finally { this.saving = false; }
     },
-
-    async saveConfig() {
-      await ipcRenderer.invoke('set-config', this.config);
-    },
-
-    async saveSettingsAndClose() {
-      await this.saveConfig();
-      this.showSettings = false;
-    },
-
-    async selectDownloadDir() {
-      const p = await ipcRenderer.invoke('select-folder');
-      if (p) {
-        this.config.downloadDir = p;
-        await this.saveConfig();
-      }
-    },
-
-    async selectBinary(field) {
-      const p = await ipcRenderer.invoke('select-file');
-      if (p) {
-        this.config[field] = p;
-      }
-    },
-
-    async handleSearchOrDirectDownload() {
-      if (!this.keyword || this.isSearching) return;
-      const term = this.keyword.trim();
-
-      // 如果直接是 Apple Music 链接，自动添加直链
-      if (term.includes('music.apple.com')) {
-        this.searchStatus = '检测到 Apple Music 链接，正在解析...';
-        this.tab = 'direct';
-      }
-
-      this.isSearching = true;
-      try {
-        const res = await ipcRenderer.invoke('search-music', {
-          term: term,
-          country: this.config.country || 'cn'
-        });
-
-        const seen = new Set();
-        this.results = (res || []).filter(i => {
-          const k = i.type + '_' + i.title + '_' + i.artist;
-          return seen.has(k) ? false : seen.add(k);
-        });
-
-        if (this.results.some(i => i.isDirectUrl)) {
-          this.tab = 'direct';
-          this.searchStatus = '已识别直链项目，可直接点击下载';
-        } else {
-          this.tab = this.filteredSongs.length > 0 ? 'song' : 'album';
-          this.searchStatus = `已找到 ${this.filteredSongs.length} 首单曲，${this.filteredAlbums.length} 张专辑`;
-        }
-      } catch (e) {
-        this.searchStatus = '搜索中断，请检查网络或更换地区';
-      } finally {
-        this.isSearching = false;
-      }
-    },
-
-    async download(item) {
-      if (!this.config.downloadDir) {
-        const p = await ipcRenderer.invoke('select-folder');
-        if (p) {
-          this.config.downloadDir = p;
-          await this.saveConfig();
-        } else {
-          return;
-        }
-      }
-
-      const id = Date.now().toString() + '_' + Math.random().toString(36).substring(2, 6);
-      const task = {
-        id,
-        title: item.title,
-        status: 'downloading',
-        prog: '分析中...',
-        url: item.url,
-        saveDir: this.config.downloadDir,
-        albumProgress: ''
-      };
-
-      this.tasks.unshift(task);
-      this.showDownloads = true;
-
-      const res = await ipcRenderer.invoke('start-download-task', task);
-      const t = this.tasks.find(x => x.id === id);
-      if (t) {
-        t.status = res.success ? 'success' : 'error';
-        t.msg = res.msg;
-      }
-    },
-
-    async handleBatchDownload() {
-      const urls = this.batchUrlsText
-        .split('\n')
-        .map(u => u.trim())
-        .filter(u => u && u.includes('music.apple.com'));
-
-      if (urls.length === 0) {
-        alert('请输入有效的 Apple Music 链接');
-        return;
-      }
-
-      for (const url of urls) {
-        this.download({
-          title: '链接任务: ' + url.split('/').pop().split('?')[0],
-          url: url
-        });
-      }
-
-      this.batchUrlsText = '';
-      this.showDownloads = true;
-    },
-
-    async cancelTask(t) {
-      if (confirm(`确定要终止任务 "${t.title}" 吗？`)) {
-        t.status = 'error';
-        t.msg = '已手动终止';
-        await ipcRenderer.invoke('cancel-download', t.id);
-      }
-    },
-
-    async retryTask(t) {
-      t.status = 'downloading';
-      t.prog = '正在重新开始...';
-      const res = await ipcRenderer.invoke('start-download-task', t);
-      t.status = res.success ? 'success' : 'error';
-      t.msg = res.msg;
-    },
-
-    removeTask(taskId) {
-      this.tasks = this.tasks.filter(t => t.id !== taskId);
-    },
-
-    clearFinishedTasks() {
-      this.tasks = this.tasks.filter(t => t.status === 'downloading' || t.status === 'error');
-    },
-
-    play(s) {
-      if (!s.previewUrl) return alert('此曲暂无官方试听片段');
-      if (this.curSong?.id === s.id) return this.togglePlay();
-      this.curSong = s;
-      this.curUrl = s.previewUrl;
-      this.isPlaying = true;
-      this.$nextTick(() => {
-        if (this.$refs.audio) {
-          this.$refs.audio.play().catch(() => {});
-        }
-      });
-    },
-
-    togglePlay() {
-      if (!this.$refs.audio) return;
-      if (this.isPlaying) {
-        this.$refs.audio.pause();
-      } else {
-        this.$refs.audio.play().catch(() => {});
-      }
-      this.isPlaying = !this.isPlaying;
-    },
-
-    seek() {
-      if (this.$refs.audio) {
-        this.$refs.audio.currentTime = this.curTime;
-      }
-    },
-
-    vChange() {
-      if (this.$refs.audio) {
-        this.$refs.audio.volume = this.vol;
-      }
-    },
-
-    fmt(s) {
-      if (!s || isNaN(s)) return '0:00';
-      const m = Math.floor(s / 60);
-      const ss = Math.floor(s % 60);
-      return `${m}:${ss < 10 ? '0' + ss : ss}`;
-    },
-
+    async selectDownloadDir() { try { const folder = await api.invoke('select-folder'); if (folder) this.draft.downloadDir = folder; } catch (error) { this.notify(error.message, true); } },
+    async selectBinary(key) { try { const file = await api.invoke('select-file'); if (file) this.draft[key] = file; } catch (error) { this.notify(error.message, true); } },
+    selectCodec(codec) { this.draft.songCodec = codec; if (codec === 'alac') this.draft.useWrapper = true; },
+    async testWrapper() { this.checkingWrapper = true; this.wrapperMessage = ''; try { const result = await api.invoke('check-wrapper', copy(this.draft)); this.wrapperReady = result.success; this.wrapperMessage = result.msg; } catch (error) { this.wrapperReady = false; this.wrapperMessage = error.message; } finally { this.checkingWrapper = false; } },
+    async checkEnvironment() { this.checkingEnvironment = true; try { this.environmentMessage = await api.invoke('check-environment', copy(this.draft)); } catch (error) { this.environmentMessage = error.message; } finally { this.checkingEnvironment = false; } },
     async handleLogin() {
-      this.isLoading = true;
-      try {
-        await ipcRenderer.invoke('run-login');
-        const ck = await ipcRenderer.invoke('check-cookie');
-        this.cookieReady = ck.valid;
-        if (ck.valid) {
-          alert('✅ 登录凭证抓取成功！可以正常开始下载音乐了。');
-        } else {
-          alert('❌ 未检测到登录凭证，请重试并在弹出的浏览器窗口中完成登录。');
-        }
-      } catch (err) {
-        alert('登录操作取消或出错: ' + (err.message || err));
-      } finally {
-        this.isLoading = false;
-      }
+      if (this.isLoading) return;
+      this.isLoading = true; this.loginMessage = '正在打开安全登录窗口…';
+      try { await api.invoke('run-login'); this.cookieReady = (await api.invoke('check-cookie')).valid; if (!this.cookieReady) throw new Error('未检测到有效登录凭证，请重试'); this.notify('登录成功，可以开始下载了'); }
+      catch (error) { this.notify(error.message || '登录已取消', true); }
+      finally { this.isLoading = false; }
     },
-
-    openDir(p) {
-      ipcRenderer.invoke('open-folder', p);
-    }
+    async cancelLogin() { try { await api.invoke('cancel-login'); } catch (error) { this.notify(error.message, true); } },
+    async handleSearch() {
+      if (!this.keyword.trim() || this.isSearching) return;
+      this.isSearching = true; this.searched = true; this.searchFailed = false; this.searchStatus = '';
+      try {
+        const result = await api.invoke('search-music', { term: this.keyword.trim(), country: this.config.country });
+        const seen = new Set(); this.results = (result || []).filter(item => { const key = item.type + '_' + item.id; if (seen.has(key)) return false; seen.add(key); return true; });
+        this.tab = this.filteredDirect.length ? 'direct' : this.filteredSongs.length ? 'song' : 'album';
+        this.searchStatus = this.filteredDirect.length ? '链接已识别，可直接加入下载' : `${this.filteredSongs.length} 首歌曲 · ${this.filteredAlbums.length} 张专辑`;
+      } catch (error) { this.results = []; this.searchFailed = true; this.searchStatus = '请检查网络，稍后重试或更换搜索地区。'; }
+      finally { this.isSearching = false; }
+    },
+    validMusicUrl(value) { try { const url = new URL(value); return url.protocol === 'https:' && url.hostname === 'music.apple.com' && !url.username && !url.password && !url.port && /^\/[a-z]{2}\/(album|song|playlist|music-video|artist)\//i.test(url.pathname); } catch { return false; } },
+    download(item, silent = false) {
+      if (!this.cookieReady && !this.config.useWrapper) { this.notify('请先登录 Apple Music，再加入下载', true); return false; }
+      if (!this.gamdlStatus.installed) { this.notify('下载引擎尚未就绪，请在运行状态中检查', true); return false; }
+      if (!this.validMusicUrl(item.url)) { this.notify('请输入有效的 Apple Music 分享链接', true); return false; }
+      if (this.config.songCodec === 'alac' && !this.config.useWrapper) { this.notify('请先在音质设置中连接 Wrapper 服务', true); return false; }
+      const task = { id: Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9), title: item.title,
+        artist: item.artist || '', cover: item.cover || '', url: item.url, saveDir: this.config.downloadDir,
+        codec: this.config.songCodec, options: copy(this.config), status: 'queued', msg: '', logs: '', percent: 0, prog: '' };
+      this.tasks.unshift(task); this.queue.add(copy(task));
+      if (!silent) this.notify('已加入下载队列，可在下载列表查看进度');
+      return true;
+    },
+    handleBatchDownload() {
+      const lines = [...new Set(this.batchUrlsText.split(/\r?\n/).map(line => line.trim()).filter(Boolean))];
+      if (lines.some(line => !this.validMusicUrl(line))) return this.notify('有无效链接，请确保每行只有一个完整 Apple Music 分享链接', true);
+      if (lines.length > 200) return this.notify('一次最多加入 200 个链接，请分批添加', true);
+      let added = 0;
+      for (const url of lines) { const name = decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).slice(-2, -1)[0] || '音乐链接').replace(/-/g, ' '); if (this.download({ title: name, url }, true)) added += 1; else break; }
+      if (added) { this.batchUrlsText = ''; this.navigate('downloads'); this.notify(`已将 ${added} 个链接加入下载队列`); }
+    },
+    cancelTask(task) { this.queue.cancel(task.id); },
+    retryTask(task) { task.logs = ''; task.prog = ''; this.queue.add(copy(task)); },
+    removeTask(id) { this.tasks = this.tasks.filter(task => task.id !== id); },
+    clearFinishedTasks() { this.tasks = this.tasks.filter(task => task.status !== 'success'); },
+    cleanLogs(text) {
+      // eslint-disable-next-line no-control-regex
+      return text.replace(/\x1b\[[0-9;]*[mK]/g, '');
+    },
+    async openDir(folder) { try { const result = await api.invoke('open-folder', folder); if (result?.error) this.notify(result.error, true); } catch (error) { this.notify(error.message, true); } },
+    play(song) { if (!song.previewUrl) return; if (this.curSong?.id === song.id) return this.togglePlay(); this.curSong = song; this.curUrl = song.previewUrl; this.curTime = 0; this.duration = 0; this.$nextTick(async () => { try { this.$refs.audio.volume = this.vol; await this.$refs.audio.play(); this.isPlaying = true; } catch { this.isPlaying = false; this.notify('暂时无法播放此试听片段', true); } }); },
+    async togglePlay() { const audio = this.$refs.audio; if (!audio) return; if (this.isPlaying) { audio.pause(); this.isPlaying = false; } else { try { await audio.play(); this.isPlaying = true; } catch { this.notify('试听播放失败，请检查网络', true); } } },
+    closePlayer() { this.$refs.audio.pause(); this.curSong = null; this.curUrl = ''; this.isPlaying = false; },
+    seek() { if (this.$refs.audio) this.$refs.audio.currentTime = this.curTime; },
+    vChange() { if (this.$refs.audio) this.$refs.audio.volume = this.vol; },
+    fmt(seconds) { if (!Number.isFinite(seconds)) return '0:00'; return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`; }
   }
 };
 </script>
 
 <style>
-/* 全局基础设置 */
-body {
-  margin: 0;
-  background: #f5f5f7;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  overflow: hidden;
-  user-select: none;
-}
-#app {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-  color: #1d1d1f;
-}
-
-/* 顶部 Header */
-.header {
-  height: 70px;
-  background: #fff;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 30px;
-  border-bottom: 1px solid #e5e5ea;
-  flex-shrink: 0;
-}
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 25px;
-}
-.header h1 {
-  font-size: 20px;
-  cursor: pointer;
-  margin: 0;
-  white-space: nowrap;
-}
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 520px;
-}
-.country-select {
-  padding: 10px 10px;
-  border-radius: 12px;
-  border: 1px solid #d1d1d6;
-  background: #f9f9fb;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  outline: none;
-}
-.search-box input {
-  flex: 1;
-  padding: 10px 15px;
-  border-radius: 12px;
-  border: 1px solid #ddd;
-  outline: none;
-  font-size: 14px;
-}
-.search-box input:focus {
-  border-color: #fa243c;
-}
-.search-btn {
-  background: #1d1d1f;
-  color: #fff;
-  border: none;
-  padding: 0 20px;
-  height: 38px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: bold;
-  white-space: nowrap;
-  transition: 0.2s;
-}
-.search-btn:hover {
-  background: #333;
-}
-.header-right {
-  display: flex;
-  gap: 12px;
-}
-.status-btn {
-  border: none;
-  padding: 8px 18px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-weight: bold;
-  background: #fa243c;
-  color: white;
-  transition: 0.2s;
-}
-.status-btn.active {
-  background: #e8e8ed;
-  color: #1d1d1f;
-}
-.status-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.icon-btn {
-  background: #e8e8ed;
-  border: none;
-  padding: 8px 18px;
-  border-radius: 20px;
-  cursor: pointer;
-  font-weight: bold;
-  transition: 0.2s;
-}
-.icon-btn:hover {
-  background: #dcdcde;
-}
-.icon-btn.highlight {
-  background: #1d1d1f;
-  color: #fff;
-}
-.icon-btn.highlight:hover {
-  background: #333;
-}
-
-/* 主布局 */
-.main-layout {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-.sidebar {
-  width: 220px;
-  background: #fff;
-  padding: 30px 20px 20px;
-  border-right: 1px solid #e5e5ea;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-.sidebar h3 {
-  font-size: 13px;
-  color: #86868b;
-  margin-bottom: 15px;
-  margin-top: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.sidebar ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.sidebar li {
-  padding: 12px 14px;
-  border-radius: 10px;
-  cursor: pointer;
-  color: #1d1d1f;
-  margin-bottom: 6px;
-  font-weight: 500;
-  font-size: 14px;
-  transition: 0.2s;
-}
-.sidebar li:hover {
-  background: #f2f2f7;
-}
-.sidebar li.active {
-  background: #fa243c;
-  color: #fff;
-}
-.sidebar-footer {
-  padding-top: 15px;
-  border-top: 1px solid #f2f2f7;
-}
-.engine-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #86868b;
-}
-.engine-badge .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ff3b30;
-}
-.engine-badge.ready .dot {
-  background: #34c759;
-}
-
-/* 内容区域 */
-.content {
-  flex: 1;
-  padding: 30px;
-  overflow-y: auto;
-  padding-bottom: 120px;
-}
-.search-info {
-  margin-bottom: 20px;
-  color: #86868b;
-  font-weight: 600;
-  font-size: 14px;
-}
-.tabs {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 25px;
-}
-.tab {
-  padding: 8px 22px;
-  background: #e8e8ed;
-  border-radius: 20px;
-  cursor: pointer;
-  font-weight: bold;
-  color: #86868b;
-  font-size: 14px;
-  transition: 0.2s;
-}
-.tab:hover {
-  background: #dedede;
-}
-.tab.active {
-  background: #fa243c;
-  color: #fff;
-}
-.ellipsis {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 单曲列表视图 */
-.list-view {
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
-  overflow: hidden;
-  margin-bottom: 20px;
-}
-.list-head {
-  display: flex;
-  padding: 14px 20px;
-  background: #f9f9fb;
-  font-weight: bold;
-  color: #86868b;
-  font-size: 13px;
-  border-bottom: 1px solid #e5e5ea;
-}
-.list-row {
-  display: flex;
-  padding: 12px 20px;
-  align-items: center;
-  border-bottom: 1px solid #f2f2f7;
-  font-size: 14px;
-  transition: 0.2s;
-}
-.list-row:hover {
-  background: #f9f9fb;
-}
-.list-row:last-child {
-  border-bottom: none;
-}
-.c-tt {
-  flex: 3;
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  font-weight: 500;
-  overflow: hidden;
-  padding-right: 10px;
-}
-.c-tt img {
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: #f0f0f2;
-}
-.c-ar {
-  flex: 2;
-  color: #555;
-  overflow: hidden;
-  padding-right: 10px;
-}
-.c-al {
-  flex: 2;
-  color: #86868b;
-  overflow: hidden;
-  padding-right: 10px;
-}
-.c-pl {
-  width: 60px;
-  text-align: center;
-}
-.c-dl {
-  width: 80px;
-  text-align: right;
-}
-.btn-sm {
-  background: #f2f2f7;
-  border: 1px solid #d1d1d6;
-  border-radius: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
-  color: #1d1d1f;
-  font-size: 12px;
-  font-weight: 500;
-  transition: 0.2s;
-}
-.btn-sm:hover:not(:disabled) {
-  background: #e5e5ea;
-}
-.btn-sm:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.btn-dl {
-  background: #1d1d1f;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-weight: bold;
-  font-size: 12px;
-  transition: 0.2s;
-}
-.btn-dl:hover {
-  background: #fa243c;
-}
-.btn-dl.primary {
-  background: #fa243c;
-  padding: 12px 24px;
-  font-size: 14px;
-}
-.btn-dl.primary:hover {
-  background: #e01b33;
-}
-
-/* 专辑卡片网格 */
-.grid-view {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 25px;
-}
-.album-card {
-  background: #fff;
-  border-radius: 18px;
-  overflow: hidden;
-  transition: 0.3s;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.02);
-}
-.album-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
-}
-.cover-container {
-  position: relative;
-  aspect-ratio: 1;
-  overflow: hidden;
-  background: #f0f0f2;
-}
-.cover-container img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.4);
-  opacity: 0;
-  transition: 0.25s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cover-container:hover .overlay {
-  opacity: 1;
-}
-.overlay button {
-  background: #fa243c;
-  color: white;
-  border: none;
-  padding: 10px 16px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-weight: bold;
-}
-.card-info {
-  padding: 15px;
-  text-align: left;
-}
-.card-tt {
-  font-weight: bold;
-  margin-bottom: 5px;
-}
-.card-ar {
-  color: #86868b;
-  font-size: 13px;
-}
-
-/* 直链项目卡片 */
-.direct-results {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-.direct-card {
-  background: #fff;
-  padding: 20px;
-  border-radius: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
-}
-.direct-info h3 {
-  margin: 0 0 6px 0;
-  font-size: 16px;
-}
-.direct-info p {
-  margin: 0;
-  color: #86868b;
-  font-size: 13px;
-}
-
-/* 欢迎空白提示 */
-.welcome-box {
-  text-align: center;
-  padding: 80px 20px;
-  color: #86868b;
-}
-.welcome-icon {
-  font-size: 54px;
-  margin-bottom: 15px;
-}
-.welcome-box h2 {
-  color: #1d1d1f;
-  margin-bottom: 10px;
-}
-.quick-tips {
-  margin-top: 30px;
-  display: inline-block;
-  background: #e8e8ed;
-  padding: 10px 20px;
-  border-radius: 20px;
-  font-size: 13px;
-  color: #555;
-}
-
-/* 批量直链下载视图 */
-.direct-download-view {
-  background: #fff;
-  padding: 30px;
-  border-radius: 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03);
-  max-width: 800px;
-}
-.section-desc {
-  color: #86868b;
-  margin-bottom: 15px;
-  font-size: 14px;
-}
-.batch-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 15px;
-  border-radius: 12px;
-  border: 1px solid #d1d1d6;
-  font-family: monospace;
-  font-size: 13px;
-  resize: vertical;
-  outline: none;
-}
-.batch-textarea:focus {
-  border-color: #fa243c;
-}
-.direct-actions {
-  margin-top: 20px;
-  display: flex;
-  gap: 15px;
-  align-items: center;
-}
-
-/* 下载侧边抽屉面板 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  justify-content: flex-end;
-  z-index: 1000;
-  backdrop-filter: blur(4px);
-}
-.download-panel {
-  width: 480px;
-  background: #f5f5f7;
-  display: flex;
-  flex-direction: column;
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.15);
-  height: 100%;
-}
-.panel-header {
-  padding: 22px 25px;
-  background: #fff;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #e5e5ea;
-}
-.panel-header h3 {
-  margin: 0;
-  font-size: 17px;
-}
-.panel-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-.text-btn {
-  background: none;
-  border: none;
-  color: #007aff;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-}
-.text-btn:hover {
-  text-decoration: underline;
-}
-.task-list {
-  padding: 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-.empty-hint {
-  text-align: center;
-  color: #86868b;
-  margin-top: 60px;
-}
-.task-card {
-  background: #fff;
-  padding: 16px;
-  border-radius: 14px;
-  margin-bottom: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
-}
-.task-main {
-  flex: 1;
-  overflow: hidden;
-  padding-right: 12px;
-}
-.task-tt {
-  font-weight: bold;
-  font-size: 14px;
-  margin-bottom: 6px;
-}
-.task-st {
-  display: flex;
-  align-items: center;
-}
-.badge {
-  font-size: 11px;
-  font-weight: bold;
-  padding: 4px 8px;
-  border-radius: 6px;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.badge.blue {
-  background: #e1f0ff;
-  color: #007aff;
-}
-.badge.green {
-  background: #e3f9e5;
-  color: #16a34a;
-}
-.badge.red {
-  background: #ffebeb;
-  color: #fa243c;
-}
-.task-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.open-btn, .retry-btn, .remove-btn {
-  background: #f2f2f7;
-  border: 1px solid #d1d1d6;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.open-btn:hover, .retry-btn:hover, .remove-btn:hover {
-  background: #e5e5ea;
-}
-.cancel-btn {
-  background: #ffebeb;
-  border: 1px solid #ffb3ba;
-  color: #fa243c;
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  font-weight: bold;
-}
-.cancel-btn:hover {
-  background: #ffc9ce;
-}
-.close-btn {
-  font-size: 20px;
-  cursor: pointer;
-  color: #86868b;
-  line-height: 1;
-}
-
-/* 参数设置模态框 */
-.settings-modal {
-  width: 600px;
-  max-height: 85vh;
-  background: #fff;
-  border-radius: 20px;
-  margin: auto;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-}
-.settings-header {
-  padding: 20px 25px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #e5e5ea;
-}
-.settings-header h3 {
-  margin: 0;
-  font-size: 18px;
-}
-.settings-body {
-  padding: 25px;
-  overflow-y: auto;
-  flex: 1;
-}
-.form-group {
-  margin-bottom: 18px;
-}
-.form-group label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: #1d1d1f;
-}
-.path-input-row {
-  display: flex;
-  gap: 8px;
-}
-.path-input-row input {
-  flex: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #d1d1d6;
-  font-size: 13px;
-  outline: none;
-}
-.form-row-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-}
-.form-select {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid #d1d1d6;
-  background: #fff;
-  font-size: 13px;
-  outline: none;
-}
-.checkbox-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: normal;
-  cursor: pointer;
-}
-.form-divider {
-  font-size: 12px;
-  font-weight: bold;
-  color: #86868b;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin: 25px 0 15px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #f2f2f7;
-}
-.settings-footer {
-  padding: 15px 25px;
-  border-top: 1px solid #e5e5ea;
-  display: flex;
-  justify-content: flex-end;
-  background: #fafafa;
-}
-
-/* 底部试听播放器 */
-.player {
-  position: fixed;
-  bottom: 0;
-  width: 100%;
-  height: 85px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(15px);
-  border-top: 1px solid #e5e5ea;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 40px;
-  box-sizing: border-box;
-}
-.p-left {
-  width: 280px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  overflow: hidden;
-}
-.p-left img {
-  width: 50px;
-  height: 50px;
-  border-radius: 8px;
-  object-fit: cover;
-  flex-shrink: 0;
-  background: #eee;
-}
-.p-left b {
-  font-size: 14px;
-}
-.p-left span {
-  font-size: 12px;
-  color: #86868b;
-}
-.p-mid {
-  flex: 1;
-  max-width: 600px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-.p-ctrl {
-  font-size: 26px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #fa243c;
-  line-height: 1;
-}
-.p-bar {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-  color: #86868b;
-}
-.p-bar input {
-  flex: 1;
-  accent-color: #fa243c;
-  cursor: pointer;
-}
-.p-right {
-  width: 140px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.p-right input {
-  width: 90px;
-  accent-color: #1d1d1f;
-  cursor: pointer;
-}
+:root{--accent:#eb4261;--accent-dark:#d73352;--ink:#282731;--muted:#92909a;--line:#eeedf1;--surface:#fff;--canvas:#f8f9fc;--green:#2b9b7b;--radius:16px}
+*{box-sizing:border-box}body{margin:0;font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ink);font-size:13px;background:var(--canvas);-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.46;cursor:not-allowed}button,input,select,textarea{outline:none}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid #eb42614d;outline-offset:3px}button{transition:background .16s,transform .16s,color .16s}button svg{flex-shrink:0}button:hover:not(:disabled){filter:brightness(.98)}img{object-fit:cover}p,h1,h2,h3{margin:0}button{border:0}input,select,textarea{min-width:0}input[type=range]{accent-color:var(--accent)}.desktop-app{display:flex;height:100vh;overflow:hidden}.sidebar{width:222px;flex-shrink:0;background:#23252d;color:#b6b7bf;display:flex;flex-direction:column;padding:30px 18px 22px}.brand{display:flex;gap:11px;align-items:center;padding:0 8px;margin-bottom:46px}.brand-icon{width:43px;height:43px;border-radius:13px;background:linear-gradient(140deg,#ff6c83,#e62b50);color:white;display:grid;place-items:center;box-shadow:0 7px 17px #ec3d5a26;flex-shrink:0}.brand strong{display:block;white-space:nowrap;font-size:14px;letter-spacing:-.3px;color:#fff;font-weight:650}.brand span{display:block;font-size:10px;color:#91939e;margin-top:4px;letter-spacing:.3px}.nav-label{font-size:10px;font-weight:600;letter-spacing:1.5px;color:#696d7d;padding:0 15px;margin-bottom:13px}.sidebar nav{display:grid;gap:7px}.nav-item{width:100%;display:flex;align-items:center;gap:12px;border-radius:10px;color:#a8aab5;background:transparent;text-align:left;font-size:13px;padding:13px 15px}.nav-item:hover{background:#2d3039;color:#fff}.nav-item.active{background:#eb42611c;color:#ff8198}.nav-item.active:before{content:"";position:absolute;left:0;width:3px;height:21px;background:#ff6a89;border-radius:0 4px 4px 0}.nav-count{margin-left:auto;min-width:21px;height:21px;background:#eb4261;border-radius:6px;display:grid;place-items:center;color:white;font-size:10px}.sidebar-tip{margin-top:auto;margin-bottom:27px;padding:22px 17px;border:1px solid #3a3c48;border-radius:13px;background:linear-gradient(145deg,#30313d,#282a34)}.sidebar-tip>svg{color:#e6b5c5;margin-bottom:15px}.sidebar-tip strong{display:block;color:#e8e8ee;font-size:13px;letter-spacing:.5px}.sidebar-tip p{font-size:11px;color:#888b9c;line-height:1.9;margin:9px 0 20px}.sidebar-tip button{display:flex;align-items:center;justify-content:space-between;width:100%;font-size:11px;color:#dfbcc9;background:transparent;padding:0}.sidebar-bottom{padding:0 10px}.engine-state{font-size:10px;display:flex;align-items:center;gap:7px;color:#a6a8b4}.engine-state i,.hero-tag span{width:6px;height:6px;border-radius:50%;background:#c19b5d;flex-shrink:0}.engine-state.ready i{background:#68d0a7;box-shadow:0 0 0 3px #68d0a710}.version{display:block;color:#636777;font-size:10px;margin-top:10px}.workspace{flex:1;min-width:0;position:relative;display:flex;flex-direction:column}.topbar{height:74px;flex-shrink:0;border-bottom:1px solid var(--line);background:#ffffffb0;display:flex;align-items:center;justify-content:space-between;padding:0 38px}.breadcrumb{display:flex;align-items:center;gap:11px;color:#aaa8b3;font-size:11px}.breadcrumb span{color:#57555f}.account-button{display:flex;align-items:center;gap:10px;font-size:11px;color:#6b6875;background:white;border:1px solid #e9e7ed;border-radius:25px;padding:6px 13px 6px 6px}.avatar{width:27px;height:27px;display:grid;place-items:center;color:#a08796;background:#f4edf1;border-radius:50%}.account-button.connected .avatar{background:#e9f7f0;color:var(--green)}.page-content{flex:1;overflow-y:auto;overflow-x:hidden;padding:34px 38px 40px;scrollbar-gutter:stable}.page-content.with-player{padding-bottom:112px}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:27px}.eyebrow{font-size:9px;letter-spacing:2.2px;color:#b1a8b2;font-weight:650;margin-bottom:9px}.page-heading h1{font-size:26px;font-weight:650;letter-spacing:-.8px}.page-heading p{color:#92909b;font-size:12px;line-height:1.7;margin-top:8px}.button{display:inline-flex;align-items:center;justify-content:center;gap:9px;white-space:nowrap;border:1px solid transparent;border-radius:8px;padding:11px 17px;font-size:12px;font-weight:600;min-height:40px}.button.primary{background:var(--accent);color:white;box-shadow:0 3px 9px #eb426113}.button.primary:hover{background:var(--accent-dark)}.button.secondary{background:#fff;color:#5c5866;border-color:#e7e5eb}.button.dark{background:#33303c;color:#fff;padding:12px 18px}.text-button{background:none;color:#8a7583;display:inline-flex;align-items:center;gap:7px;font-size:11px;padding:5px 0}.icon-button{display:inline-flex;align-items:center;justify-content:center;min-width:31px;height:31px;padding:6px;color:#898492;background:transparent;border-radius:7px}.icon-button:hover{background:#f0edf2}.icon-button.accent{color:var(--accent);background:#fdf0f3}.icon-button.muted{color:#b4afba}.search-form{display:flex;align-items:center;gap:15px;background:white;border:1px solid #e7e5ed;border-radius:12px;padding:7px 8px 7px 18px;box-shadow:0 4px 12px #28243c03;margin-bottom:27px;min-height:57px}.search-form>svg{color:#a49cab}.search-form input{flex:1;min-width:40px;border:0;background:transparent;color:var(--ink);font-size:12px;height:38px}.search-form input::placeholder{color:#b0a9b6}.search-form select{max-width:105px;background:transparent;border:0;border-left:1px solid var(--line);padding:0 5px 0 13px;color:#807889;font-size:11px}.search-form .button{min-width:85px}.hero{background:linear-gradient(115deg,#f9e8e6 0%,#f7e6ea 52%,#ede4f0 100%);border:1px solid #f0e2e6;border-radius:var(--radius);display:flex;overflow:hidden;min-height:300px;position:relative}.hero-copy{padding:32px 34px;position:relative;z-index:2;min-width:365px}.hero-tag{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:1.3px;color:#a27685;margin-bottom:18px}.hero-tag span{width:5px;height:5px;background:#e093a4}.hero h2{font-size:32px;letter-spacing:1px;line-height:1.42;font-weight:650;color:#62434e}.hero p{font-size:11px;line-height:1.9;color:#a1808d;margin:14px 0 22px}.record-art{flex:1;min-width:300px;position:relative;display:flex;align-items:center;justify-content:center}.record-sleeve{width:194px;height:204px;position:relative;z-index:2;margin-left:-65px;border-radius:2px;background:linear-gradient(155deg,#d7909b 0%,#dcafb1 35%,#b27387 100%);box-shadow:10px 12px 23px #8e657a30;transform:rotate(-9deg);display:flex;align-items:end;padding:22px}.record-sleeve:before{content:"";position:absolute;inset:13px;border:1px solid #fbe2e54d}.sleeve-mark{font-family:Georgia,serif;color:#ffefed;font-size:56px;letter-spacing:-5px;line-height:.9;z-index:1}.sleeve-mark span{display:block;font-family:"Segoe UI",sans-serif;font-size:6px;letter-spacing:2px;margin-top:17px;line-height:1.6}.vinyl{width:210px;height:210px;position:absolute;left:50%;top:50%;margin-top:-105px;margin-left:-35px;border-radius:50%;background:repeating-radial-gradient(circle at center,#26262d 0px,#26262d 2px,#34343d 3px,#26262d 4px);box-shadow:12px 18px 26px #69577025;display:grid;place-items:center}.vinyl:after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(transparent,#ffffff0d,transparent,#ffffff10,transparent,#ffffff11,transparent)}.vinyl-label{width:74px;height:74px;background:#d893a2;border-radius:50%;display:grid;place-items:center;color:#fce5e6;border:1px solid #e6b8c3;z-index:1}.record-caption{position:absolute;right:25px;bottom:20px;color:#b79aaa;font-size:6px;letter-spacing:2.6px}.status-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:20px}.status-card{display:flex;align-items:center;gap:11px;background:white;border:1px solid var(--line);border-radius:12px;padding:18px 16px;text-align:left;min-width:0}.status-card>div:nth-child(2){min-width:0;flex:1}.status-card>svg{color:#c7c1cb}.status-card span{display:block;color:#a29aa9;font-size:10px;margin-bottom:6px}.status-card strong{font-size:11px;font-weight:600;color:#585060;white-space:nowrap;display:block;overflow:hidden;text-overflow:ellipsis}.status-card small{font-size:9px;color:#b89eac;font-weight:400;margin-left:3px}.status-icon{width:38px;height:38px;border-radius:11px;flex-shrink:0;display:grid;place-items:center}.mint{background:#edf7f2;color:#60a68c}.lavender{background:#f0eef9;color:#9a8dbc}.peach{background:#fceff1;color:#d895a0}.section-title{display:flex;align-items:baseline;justify-content:space-between;margin:30px 0 15px}.section-title h2{font-size:15px;font-weight:650}.section-title>span{color:#a9a2b0;font-size:10px}.steps-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.step-card{padding:20px 20px 19px;border:1px solid var(--line);background:#fff;border-radius:12px}.step-number{font-size:10px;font-weight:650;letter-spacing:1px;color:#d0b9c4;display:block;margin-bottom:13px}.step-card h3{font-size:12px;font-weight:600;margin-bottom:9px;color:#625867}.step-card p{color:#aaa1ae;font-size:10px;line-height:1.85}.suggestions{display:flex;align-items:center;gap:10px;margin-top:24px;flex-wrap:wrap}.suggestions>span{font-size:10px;color:#aba2b0;margin-right:5px}.suggestions button{padding:6px 10px;background:#f0eef4;color:#9a8e9f;font-size:10px;border-radius:5px;display:flex;align-items:center;gap:13px}.results-toolbar{display:flex;align-items:center;justify-content:space-between;margin:22px 0 18px;gap:15px}.results-toolbar>span{color:#aaa1ae;font-size:10px}.segmented{display:flex;gap:4px;padding:4px;border-radius:9px;background:#eeedf3;max-width:100%}.segmented button{padding:7px 14px;background:transparent;border-radius:6px;color:#a095a8;font-size:11px;white-space:nowrap}.segmented button.selected{background:white;color:#6c5969;box-shadow:0 1px 4px #6a506312}.segmented span{font-size:9px;color:#baacbd;margin-left:4px}.music-table{border:1px solid var(--line);border-radius:13px;background:white;overflow:hidden}.music-table-head,.music-row{display:grid;grid-template-columns:30px minmax(0,1.5fr) minmax(0,1fr) 80px;align-items:center;gap:12px;padding:12px 20px}.music-table-head{font-size:10px;color:#b4aaba;background:#fbfafc;height:40px}.music-table-head>span:last-child{text-align:center}.music-row{border-top:1px solid #f4f1f6;min-height:76px}.music-row:hover{background:#fefbfd}.row-number{color:#c0b6c6;font-size:10px}.track-cell{display:flex;align-items:center;gap:12px;min-width:0}.track-cell img{width:45px;height:45px;border-radius:7px;flex-shrink:0}.track-cell>div{min-width:0}.track-cell strong{display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:12px;font-weight:600}.track-cell span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#8d8297;font-size:10px;margin-top:6px}.album-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#a59baa}.row-actions{display:flex;gap:7px;justify-content:flex-end}.album-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:24px 19px}.album-card{min-width:0}.album-cover{position:relative;aspect-ratio:1;overflow:hidden;border-radius:12px;background:#eeeaf1}.album-cover>img{width:100%;height:100%;transition:transform .3s}.album-card:hover img{transform:scale(1.025)}.album-cover>span{position:absolute;left:10px;top:10px;color:white;background:#0004;font-size:9px;backdrop-filter:blur(8px);padding:4px 8px;border-radius:5px}.album-download{position:absolute;bottom:12px;right:12px;width:36px;height:36px;background:white;color:var(--accent);border-radius:50%;box-shadow:0 4px 14px #0002;display:grid;place-items:center}.album-card h3{font-size:12px;font-weight:600;margin-top:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.album-card p{font-size:10px;color:#a69aab;margin-top:6px}.empty-state{text-align:center;padding:78px 15px}.empty-icon{width:72px;height:72px;margin:0 auto 22px;display:grid;place-items:center;background:#f0ebf3;color:#c7b4cc;border-radius:24px}.empty-state h2{font-size:17px;font-weight:600;color:#74647c;margin-bottom:11px}.empty-state p{font-size:12px;color:#b0a2b8;line-height:1.8;margin-bottom:23px}.inline-empty{padding:40px;text-align:center;color:#aaa1ae;font-size:12px}.panel{background:white;border:1px solid var(--line);border-radius:var(--radius)}.direct-result{display:flex;align-items:center;gap:20px;padding:24px}.direct-result>div:nth-child(2){flex:1;min-width:0}.direct-result h3{font-size:15px;margin:8px 0}.direct-result p{font-size:11px;color:#96899f;overflow-wrap:anywhere}.pill{display:inline-flex;font-size:9px;background:#fceef2;color:#cf879b;border-radius:5px;padding:4px 7px;font-weight:400;vertical-align:middle}.two-column{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:24px}.link-panel{padding:27px}.panel-heading{display:flex;align-items:center;gap:13px;margin-bottom:25px}.panel-heading h2{font-size:15px;margin-bottom:8px;font-weight:600}.panel-heading p{font-size:11px;color:#9b8ba4;line-height:1.7}.link-panel textarea{resize:vertical;border:1px solid #e9e3ed;border-radius:10px;padding:20px;width:100%;background:#fcfbfd;font-size:12px;line-height:1.8;min-height:230px;max-height:420px;color:#64546c}.link-panel textarea::placeholder{color:#c3b3cc}.link-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px}.link-footer>span{font-size:9px;color:#b5a5bd}.guide-panel{padding:21px 5px 10px 9px}.guide-panel h2{font-size:22px;line-height:1.7;font-weight:600;color:#8a728f;margin-top:12px}.guide-panel ol{padding-left:21px;margin:25px 0;color:#d4bacd}.guide-panel li{padding-left:7px;margin-bottom:25px;font-size:11px}.guide-panel li strong{font-weight:600;color:#8a7592}.guide-panel li p{font-size:10px;line-height:1.9;color:#b4a1bd;margin-top:7px}.subtle-note{border-top:1px solid var(--line);padding-top:20px;display:flex;gap:9px;color:#bdadbf;line-height:1.8;font-size:10px}.subtle-note>svg{flex-shrink:0;margin-top:2px}.download-stats{display:flex;align-items:center;gap:36px;padding:22px 25px;border:1px solid var(--line);border-radius:13px;background:white;margin:24px 0}.download-stats>div{display:flex;align-items:center;gap:9px}.download-stats strong{font-size:20px;color:#6c5a74;font-weight:600}.download-stats span:last-child{font-size:11px;color:#aa99b2}.download-stats>.text-button{margin-left:auto}.stat-dot{width:6px;height:6px;border-radius:50%}.blue{background:#8dafe3}.green{background:#74c9a8}.red{background:#e4a1b0}.task-list{display:grid;gap:12px}.task-card{background:white;border:1px solid var(--line);border-radius:13px;padding:21px;display:flex;align-items:center;gap:17px;flex-wrap:wrap}.task-art{width:51px;height:51px;flex-shrink:0;background:#f5eef6;color:#c3a8ca;border-radius:10px;display:grid;place-items:center;overflow:hidden}.task-art>img{width:100%;height:100%}.task-art.success{color:#6ab596;background:#eef8f2}.task-info{flex:1;min-width:0}.task-title{display:flex;align-items:center;gap:10px}.task-title h3{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.codec-tag{font-size:8px;background:#f5f1f6;color:#b8a4bd;padding:3px 5px;border-radius:4px;white-space:nowrap}.task-info>p{color:#ad9eb4;font-size:10px;margin-top:7px}.task-status{display:block;font-size:10px;color:#bba8c3;margin-top:9px;overflow-wrap:anywhere}.task-status.success{color:#6cb79a}.task-status.error{color:#da879a}.task-status.downloading{color:#a593c2}.task-actions{display:flex;gap:6px}.progress-track{height:3px;background:#f3edf5;border-radius:3px;margin-top:12px;max-width:450px;overflow:hidden}.progress-track>div{height:100%;background:linear-gradient(90deg,#efabb9,#d477a2);transition:width .25s}.progress-track .indeterminate{width:35%;animation:progress 1.4s ease-in-out infinite}.task-logs{width:100%;padding:11px 0 0 68px;border-top:1px solid #f6f2f7;font-size:10px;color:#b29ebc}.task-logs summary{cursor:pointer}.task-logs pre,.diagnostic{background:#f8f5fa;white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;user-select:text;font-family:Consolas,monospace;color:#92829e;padding:14px;border-radius:7px;font-size:10px;line-height:1.7}.settings-layout{display:grid;grid-template-columns:155px minmax(0,1fr);gap:27px;max-width:1000px}.settings-nav{display:flex;flex-direction:column;gap:5px;align-items:stretch}.settings-nav button{background:transparent;text-align:left;display:flex;align-items:center;gap:10px;border-radius:8px;padding:12px 14px;color:#a08caa;font-size:11px}.settings-nav button.selected{background:#f7eaf0;color:#ca7b99}.settings-content{min-width:0}.settings-card{padding:30px}.card-title{margin-bottom:28px}.card-title h2{font-size:17px;font-weight:600;color:#5d5267}.card-title p{font-size:11px;line-height:1.8;color:#9c90a6;margin-top:10px}.field{display:block;margin:21px 0}.field>span{display:block;font-size:11px;font-weight:600;color:#74697f;margin-bottom:11px}.field input,.field select{width:100%;padding:11px 12px;border:1px solid #e8e0ed;border-radius:7px;color:#80638f;background:#fff;font-size:11px;min-height:39px}.field input::placeholder{color:#b4a8be}.field small,.field-hint{display:block;color:#a397ad;font-size:10px;line-height:1.8;margin-top:9px}.input-group{display:flex;gap:9px}.input-group input{flex:1;min-width:0;background:#fcfafd}.input-group .button{font-size:10px;padding:9px 12px}.switch-row{display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f0e9f4;gap:25px;padding:21px 0}.switch-row:last-child{padding-bottom:0}.switch-row strong{font-size:11px;font-weight:600;color:#7c6c88}.switch-row p{font-size:10px;color:#a295ac;line-height:1.8;margin-top:7px}.switch{position:relative;display:block;width:34px;height:20px;flex-shrink:0}.switch input{opacity:0;width:100%;height:100%;position:absolute;margin:0;z-index:2;cursor:pointer}.switch>span{display:block;background:#e7deeb;border-radius:20px;width:100%;height:100%;transition:background .2s}.switch>span:after{content:"";display:block;position:absolute;top:3px;left:3px;width:14px;height:14px;background:white;border-radius:50%;box-shadow:0 1px 2px #0001;transition:transform .2s}.switch input:checked+span{background:var(--accent)}.switch input:checked+span:after{transform:translateX(14px)}.switch input:focus-visible+span{outline:3px solid #eb42614d;outline-offset:3px}.settings-save{position:sticky;bottom:-40px;z-index:3;background:var(--canvas);padding:15px 0;display:flex;align-items:center;justify-content:space-between;margin:21px 0 30px;gap:15px}.settings-save>span{color:#9c8ea6;font-size:10px}.settings-save .button{padding:10px 18px}.codec-options{display:grid;gap:11px;margin-bottom:27px}.codec-option{text-align:left;display:flex;align-items:center;gap:14px;border:1px solid #e9e0ef;background:#fff;border-radius:10px;padding:17px;color:#d0bfd9}.codec-option>div:nth-child(2){flex:1}.codec-option strong{font-size:12px;color:#7a668a;font-weight:600}.codec-option p{font-size:10px;line-height:1.7;color:#a095ab;margin-top:7px}.codec-option .pill{margin-left:6px;font-size:8px}.codec-option.selected{background:#fdf6f9;border-color:#edc1d0}.codec-radio{width:15px;height:15px;border-radius:50%;border:1px solid #e0d2e8;flex-shrink:0}.selected .codec-radio{border:4px solid var(--accent);background:white}.field-grid{display:grid;grid-template-columns:1fr 130px;gap:16px}.wrapper-fields{padding-top:6px}.notice{display:flex;align-items:flex-start;gap:11px;padding:15px 16px;background:#fbf6ec;color:#c0a777;border-radius:9px;font-size:10px;line-height:1.9}.notice>svg{flex-shrink:0;margin-top:1px}.connection-result{font-size:10px;color:#d28a9f;line-height:1.8;margin-top:12px;overflow-wrap:anywhere}.connection-result.success{color:#72ae93}.runtime-card{display:flex;align-items:center;gap:15px;padding:19px 17px;background:#faf4ee;border:1px solid #f5e9da;border-radius:10px;color:#bfad85;margin-bottom:20px}.runtime-card.ready{background:#f0f8f4;border-color:#e5f1e9;color:#7eb49a}.runtime-card>div{flex:1;min-width:0}.runtime-card strong{font-size:12px;color:#78a58f;font-weight:600}.runtime-card p{font-size:10px;line-height:1.7;margin-top:7px;overflow-wrap:anywhere}.runtime-card .button{font-size:10px;padding:8px 11px}.advanced-details{border-top:1px solid #f1eaf5;margin-top:28px;padding-top:20px}.advanced-details summary{cursor:pointer;font-size:11px;color:#b198c1}.large-logo{width:66px;height:66px;border-radius:20px;margin:4px auto 22px}.about-card{text-align:center;padding:34px 35px}.about-card h2{font-size:24px;font-weight:600;color:#90739c;letter-spacing:-.5px}.about-card>p{color:#8f849a;font-size:11px;margin:12px 0 16px}.about-copy{text-align:left;border-top:1px solid #f1e9f6;margin-top:27px;padding-top:10px}.about-copy p{font-size:11px;line-height:2;color:#7c7487;margin-top:17px}.login-banner{padding:12px 37px;display:flex;gap:10px;align-items:center;background:#fdf1f5;color:#bc7d92;font-size:11px;flex-shrink:0}.login-banner>span:nth-child(2){flex:1}.spinner{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:spin .75s linear infinite;flex-shrink:0}.spinner.large{width:25px;height:25px}.toast-message{position:fixed;z-index:100;bottom:30px;left:calc(50% + 90px);transform:translateX(-50%);max-width:min(650px,80vw);display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #dfeee6;box-shadow:0 8px 40px #34263e18;color:#699781;padding:12px 15px;border-radius:11px;font-size:12px}.toast-message>span{overflow-wrap:anywhere}.toast-message.error{color:#ce7a91;border-color:#f4dfe5}.toast-message>.icon-button{width:23px;min-width:23px;height:23px;margin-left:10px}.toast-enter-active,.toast-leave-active{transition:opacity .2s,margin-bottom .2s}.toast-enter-from,.toast-leave-to{opacity:0;margin-bottom:-8px}.player{position:absolute;bottom:0;left:0;width:100%;height:79px;background:#fffefefa;border-top:1px solid #efe9f3;display:flex;align-items:center;gap:13px;padding:12px 30px;backdrop-filter:blur(20px);z-index:10}.player-song{display:flex;align-items:center;gap:11px;width:220px;min-width:100px}.player-song>img{width:43px;height:43px;border-radius:7px;flex-shrink:0}.player-song>div{min-width:0}.player-song strong{display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:11px;font-weight:600;color:#977aa5}.player-song span{display:block;font-size:9px;color:#c3acd0;margin-top:6px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.player-play{background:#f9e9f0;width:33px;height:33px;border-radius:50%;display:grid;place-items:center;color:var(--accent);flex-shrink:0}.player-time{font-size:9px;color:#c7b0d4;min-width:27px;text-align:center}.player-seek{flex:1;min-width:30px;height:3px}.player>svg{color:#cbb6d5;margin-left:12px;flex-shrink:0}.player-volume{width:64px;height:3px}
+@keyframes spin{to{transform:rotate(360deg)}}@keyframes progress{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-thumb{background:#dbd2df;border-radius:6px}::-webkit-scrollbar-track{background:transparent}
+@media(min-width:1500px){.page-content{padding-left:55px;padding-right:55px}.topbar{padding-left:55px;padding-right:55px}.hero{min-height:335px}.hero-copy{padding:40px 40px}.record-sleeve{width:220px;height:230px}.vinyl{width:240px;height:240px;margin-top:-120px}.hero h2{font-size:38px}}
+@media(max-width:1120px){.sidebar{width:190px;padding-left:14px;padding-right:14px}.brand{gap:8px;padding:0 4px}.brand strong{font-size:14px}.brand-icon{width:37px;height:37px}.page-content{padding:27px 26px 35px}.topbar{padding:0 26px}.hero-copy{padding:29px;min-width:315px}.hero h2{font-size:28px}.record-art{min-width:220px}.record-sleeve{width:165px;height:180px;margin-left:-35px}.vinyl{width:180px;height:180px;margin-top:-90px;margin-left:-20px}.status-card{padding:15px 11px;gap:9px}.status-icon{width:32px;height:32px}.status-card strong{font-size:10px}.status-card>svg{display:none}.two-column{grid-template-columns:minmax(0,1fr) 210px;gap:20px}.link-panel{padding:22px}.link-footer{align-items:flex-start;flex-direction:column}.settings-layout{grid-template-columns:135px minmax(0,1fr);gap:17px}.settings-card{padding:25px}.settings-nav button{padding:12px 10px}.task-logs{padding-left:0}.download-stats{gap:22px}.download-stats>div{gap:7px}.player-song{width:175px}.record-caption{font-size:5px;right:12px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 </style>

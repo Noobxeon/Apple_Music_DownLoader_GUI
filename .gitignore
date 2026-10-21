@@ -6,3 +6,11 @@ dist/
 .DS_Store
 cookies.txt
 config.json
+
+__pycache__/
+.venv/
+
+vendor/
+.build/
+
+.venv-build/

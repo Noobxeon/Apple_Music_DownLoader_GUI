@@ -1,11 +1,11 @@
 {
   "name": "apple_music",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.1.0",
+  "description": "基于 Electron + Vue 3 的 Apple Music 下载器",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:frontend": "cd frontend && npm install && npm run build",
+    "build:frontend": "cd frontend && npm run build",
     "build": "npm run build:frontend && electron-builder",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -18,6 +18,13 @@
     "win": {
       "target": "nsis"
     },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Apple Music 下载器"
+    },
     "asarUnpack": [
       "backend/**/*"
     ],
@@ -29,8 +36,14 @@
       "node_modules/**/*"
     ]
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "apple-music",
+    "downloader",
+    "electron",
+    "vue3",
+    "gamdl"
+  ],
+  "author": "NBXW",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {

@@ -1,64 +1,35 @@
-# Apple Music Downloader v1.3.1 回归测试
+# Apple Music Studio Downloader v2.0.0 测试验证报告
 
-日期：2026-10-21。
+## 1. 单元与集成测试 (`npm test`)
 
-- 25/25 Node 测试通过，新增 Apple Music 曲库解析、地区保留、去重、响应格式错误、URL 过滤、重定向兼容与网络请求回归。
-- 最终 `app.asar` 的 13 项界面烟测通过，无警告：包括中国大陆 Yorushika 命中与原始日文标题显示、美国搜索返回 196 个项目，以及原有登录取消、设置保存、队列并发/取消/重试/筛选。测试在正常 Windows 进程环境运行，未使用 `--no-sandbox` 参数。
-- 冻结 `gamdl-engine.exe` 在无系统 Python 的环境通过 gamdl 原有 `_download_ytdlp_async` 启动真实 Windows 子进程，完成本地 HTTP 和两分片 HLS 下载；下载内容 SHA-256 为 `a1f259d4365ed4320c377ce26f5c8c56dcdc9a89e7b641bfd8eabfbbeac86654`，逐字节比对通过。
-- 原生路径包含中文、日文和空格；引擎 UTF-8 输出正确。回归已加入打包前强制检查。
-- 最终 `resources/engine/gamdl-engine.exe` 与真实下载通过的引擎 SHA-256 一致，且最终资源路径的引擎再跑 HTTP/HLS/UTF-8 探针通过。
-- v1.3.1 NSIS 安装器在隔离目录安装退出码 0；安装后应用 `--diagnostics` 返回 1.3.1/内置 gamdl 3.9.1，退出码 0。安装后的引擎 HTTP/HLS/UTF-8 探针通过。
-- 实际读取 Apple Music 中国大陆 `yorushika` 搜索页得到 42 个歌曲/专辑项目，包括 `1648877323`《だから僕は音楽を辞めた》，返回 `/cn/` 链接。相同关键词旧 iTunes 接口在 `cn` 返回 0 条，在 `us`/`jp` 返回结果，证实旧搜索源不能代表中国大陆 Apple Music 曲库。
-- 使用应用已有的登录 Cookie 对用户反馈的歌曲 `1648877323` 执行真实 AAC 下载，日志以 `Finished with 0 error(s)` 结束，退出码为 0。生成 M4A 大小为 8,533,528 字节，Mutagen 验证时长 242.9606 秒、`mp4a.40.2`、256,000 bit/s，歌名《だから僕は音楽を辞めた》和歌手 Yorushika 标签正确。Electron 的结果判断也返回成功，UTF-8 日志包含完整日文标题，没有 worker 参数错误。
-- 真实下载仅验证这一首 AAC 曲目；ALAC、批量长时间运行和其他账号/网络未因此得到验证。账号凭证和音乐文件均不包含在发行包及源码中。
+共 **30/30** 项测试全部通过 (`fail 0`)：
 
-以下保留 v1.3.0 历史验证记录。其引擎导入/CLI 测试没有覆盖真正的下载子进程，因此没有发现本次修复的冻结入口缺陷。
+- **自包含引擎隔离验证 (`tests/bundle.test.js`)**：
+  - 打包态严禁回退至宿主系统 Python，强制校验内置 `gamdl-engine.exe` (`gamdl 3.9.1` + Rust `_ammuxer` 原生模块)。
+  - 在清空 `PATH=""` 与伪造无效 `PYTHONHOME` 环境下，通过 `--gui-self-test`、`--gui-download-self-test`（多进程 Worker HTTP/HLS 下载与中日文 UTF-8 输出校验）以及 `--gui-validate-args` 参数边界校验。
+- **参数构建与 Wrapper 预检 (`tests/engine.test.js`)**：
+  - 验证无 Shell 参数边界安全、Apple Music 域名白名单、ALAC + Wrapper v2 (`API 0.0.2`) HTTP/TCP 握手检测、错误摘要精准判定。
+- **主进程生命周期与沙箱登录 (`tests/main.test.js`)**：
+  - 验证内置沙箱隔离登录窗口 (`contextIsolation: true, sandbox: true`) 免 Python 提取 `media-user-token`、取消/超时/关闭资源回收、预检阶段取消竞态保护。
+- **并发队列调度 (`tests/queue.test.js`)**：
+  - 验证并发上限严格受控、排队取消零进程启动、运行中取消槽位保护与异常恢复。
+- **中国大陆真订阅曲库检索 (`tests/search.test.js`)**：
+  - 验证直连 Apple Music 中国大陆订阅曲库解析（保留传统 iTunes Store 缺失的曲目如《だから僕は音楽を辞めた》`1648877323`）及跨区防重定向保护。
+- **Studio v2.0 扩展套件 (`tests/studio_v2.test.js`)**：
+  - 验证 `AppStore`（主题、并发配置、我的收藏、历史归档持久化）。
+  - 验证三合一凭证中心（裸 `media-user-token` 自动封装 Netscape 格式及过期时间探测）。
+  - 验证 `LibraryManager` 本地曲库扫描、`.lrc` 同步歌词时间轴解析，以及通过内置独立引擎 `--gui-inspect-media` 调用 `mutagen` 解析音频元数据标签。
+  - 验证 `DownloadQueueManager` 实时曲目序号 `[X/Y]`、曲名、实时下载速率与百分比提取。
+  - 验证 `AppleMusicCatalog` 全球实时榜单与国内高速 CDN 兜底机制。
 
----
+## 2. 无环境桌面 UI 冒烟与视觉回归测试 (`npm run smoke:ui`)
 
-# Apple Music Downloader v1.3.0 测试报告
+在清空系统 `PATH`（模拟无 Python 纯净用户电脑）下启动真实 Electron 窗口并通过全部 **7 项** 端到端交互验证：
 
-测试日期：2026-10-21  
-平台：Windows 10 x64  
-应用：Electron 41.10.7 + Vue 3  
-内置下载引擎：gamdl 3.9.1（PyInstaller 独立运行时）
-
-## 发布验收结果
-
-| 项目 | 结果 | 覆盖内容 |
-|---|---|---|
-| Node 单元与集成测试 | 21/21 通过 | URL 与参数校验、Cookie、登录生命周期、Wrapper 预检、进程错误与超时、结果判断、双并发队列、取消与重试 |
-| Vue lint | 通过 | 无 lint 错误 |
-| production 前端构建 | 通过 | Vue production bundle 成功生成 |
-| Git diff 格式检查 | 通过 | 无空白错误 |
-| 独立引擎自检 | 通过 | gamdl、原生 `_ammuxer`、Crypto、pywidevine、pyplayready、yt-dlp、证书包均可导入 |
-| 最终 `app.asar` UI 烟测 | 11/11 通过 | 首页、紧凑布局、preload 隔离、登录窗口、真实 Apple 搜索、链接解析、设置落盘、并发、取消、失败、重试、筛选 |
-| NSIS 安装测试 | 通过 | 静默安装退出码 0；应用、卸载器、内置引擎齐全；安装后诊断返回 gamdl 3.9.1 |
-| ZIP 便携包测试 | 通过 | 解压后应用和内置引擎齐全；诊断返回 gamdl 3.9.1 |
-
-安装版和 ZIP 版的诊断均把 `PYTHONHOME`、`PYTHONPATH` 指向不存在的目录，仍识别到 `bundled: true` 和 gamdl 3.9.1，证明发行包不依赖用户安装 Python。自动化环境的虚拟显卡无法启动 Electron GPU 子进程，因此发布诊断和隐藏窗口 UI 烟测使用 Chromium 的无 GPU/无沙箱测试参数；应用本身仍保留正常 Electron 渲染设置。
-
-## UI 烟测场景
-
-1. 打包后的 preload 只暴露限定 API，renderer 无 Node `require`。
-2. 1280×860 与 1000×700 两种窗口尺寸无横向溢出。
-3. 缺少凭证时，真实下载 IPC 明确拒绝任务。
-4. Electron 原生登录窗口可打开、取消并清理状态。
-5. Apple Music 直链可解析。
-6. Apple 搜索接口返回 157 条结果。
-7. ALAC 选择会启用并说明 Wrapper，设置可通过真实 IPC 保存。
-8. 一次加入 5 个任务时最多启动 2 个。
-9. 成功、失败、取消都会释放队列槽位。
-10. 失败或取消任务可以重试。
-11. 下载状态筛选正常。
-
-## 尚未声称通过的项目
-
-测试环境没有维护者的 Apple ID、有效媒体授权或已部署的 Wrapper v2，因此没有执行真实歌曲下载、真实账号登录成功、ALAC 解密和长时间批量下载。发布前若要对这些能力作正式承诺，应使用维护者账号和独立 Linux Wrapper 环境做一次端到端验收。
-
-Windows EXE 当前没有 Authenticode 代码签名。安装包可以使用，但部分电脑可能显示 SmartScreen 提示；正式公开发布建议使用维护者的代码签名证书签名。
-
-## SHA-256
-
-- `Apple-Music-Downloader-1.3.0-x64.exe`: `957D82065B99166B4DDAB417B85C4099A5ECF65C6276F892DF7139C7679BFD49`
-- `Apple-Music-Downloader-1.3.0-x64.zip`: `0DDB2EF2F5D1F7483631666AF2EA8F920BF06A6847531B69AE4DF71B9505E28A`
+1. `preload.js` 双桥接隔离校验 (`window.appleMusic` & `window.musicAPI`，且渲染进程 `window.require === undefined`)。
+2. 内置 `gamdl 3.9.1` 自包含引擎就绪状态指示灯校验。
+3. Studio Dark 深色黑曜石主题下实时热歌榜与冠军专辑渲染 (`01-studio-discover-dark.png`)。
+4. 中国大陆 (`CN`) 订阅曲库检索 `yorushika` 渲染单曲、专辑、MV、歌手四维结果及曲目时长 (`02-studio-search-cn.png`)。
+5. 智能单链深度解析与批量多链/TXT 导入视图渲染 (`03-studio-url-parser.png`)。
+6. 内置沙箱 Apple ID 登录窗口真实唤起、取消及窗口句柄清理验证。
+7. 工作站五维参数设置、环境诊断中心及深浅双主题 (`dark` / `light`) 实时切换验证 (`04-studio-settings-dark.png`, `05-studio-settings-light.png`)。

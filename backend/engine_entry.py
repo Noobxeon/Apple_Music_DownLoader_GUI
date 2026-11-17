@@ -21,6 +21,7 @@ from gamdl.cli.cli import main
 def self_test():
     # Exercise the native module and dynamic dependencies before reporting ready.
     import certifi
+    import mutagen
     from Crypto.Cipher import AES
     from pywidevine.device import Device
     from pyplayready.device import Device as PlayReadyDevice
@@ -28,7 +29,7 @@ def self_test():
 
     assert callable(_ammuxer.decrypt_and_mux_hex_native)
     assert callable(_ammuxer.decrypt_and_mux_wrapper_native)
-    assert AES and Device and PlayReadyDevice and yt_dlp
+    assert AES and Device and PlayReadyDevice and yt_dlp and mutagen
     with open(certifi.where(), "rb") as certificates:
         assert b"BEGIN CERTIFICATE" in certificates.read()
     return {"version": importlib.metadata.version("gamdl"), "native": True,
@@ -41,6 +42,9 @@ if __name__ == "__main__":
     elif sys.argv[1:] == ["--gui-download-self-test"]:
         from engine_probe import download_self_test
         print(json.dumps(download_self_test(), ensure_ascii=False))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--gui-inspect-media":
+        from media_inspector import inspect_file
+        print(json.dumps(inspect_file(sys.argv[2]), ensure_ascii=False))
     elif len(sys.argv) == 3 and sys.argv[1] == "--gui-validate-args":
         with main.make_context("gamdl", json.loads(sys.argv[2])) as context:
             print(json.dumps({"valid": True, "urls": context.params["urls"]}))

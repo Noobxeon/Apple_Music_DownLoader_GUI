@@ -13,8 +13,10 @@ assert importlib.metadata.version("gamdl") == VERSION, "Install backend/requirem
 command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onedir", "--console",
            "--name", "gamdl-engine", "--distpath", str(ROOT / "vendor"),
            "--workpath", str(ROOT / ".build" / "engine"), "--specpath", str(ROOT / ".build"),
+           "--paths", str(ROOT / "backend"),
            "--collect-all", "gamdl", "--collect-all", "yt_dlp", "--collect-all", "pywidevine",
-           "--collect-all", "pyplayready", "--collect-data", "certifi",
+           "--collect-all", "pyplayready", "--collect-all", "mutagen", "--collect-data", "certifi",
+           "--hidden-import", "media_inspector", "--hidden-import", "engine_probe",
            "--recursive-copy-metadata", "gamdl", str(ROOT / "backend" / "engine_entry.py")]
 subprocess.run(command, cwd=ROOT, check=True)
 target = ROOT / "vendor" / "gamdl-engine"

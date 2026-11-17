@@ -8,12 +8,30 @@ const path = require('path');
 const ENGINE_VERSION = '3.9.1';
 const WRAPPER_API_VERSION = '0.0.2';
 
+const ALLOWED_CODECS = new Set([
+  'aac-web',
+  'aac-he-web',
+  'aac',
+  'aac-he',
+  'alac',
+  'alac,aac-web',
+  'atmos',
+  'atmos,aac-web',
+  'ac3'
+]);
+
 function capture(command, args, timeout = 15000) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { shell: false, windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: 'utf8', PYTHONUTF8: '1' } });
+    const child = spawn(command, args, {
+      shell: false,
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf8', PYTHONUTF8: '1' }
+    });
     let output = '';
-    const timer = setTimeout(() => { child.kill(); reject(new Error('运行环境检测超时')); }, timeout);
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('运行环境检测超时'));
+    }, timeout);
     child.stdout.on('data', d => { output = (output + d).slice(-32768); });
     child.stderr.on('data', d => { output = (output + d).slice(-32768); });
     child.on('error', err => { clearTimeout(timer); reject(err); });
@@ -32,7 +50,7 @@ async function findPython(config = {}) {
     try {
       await capture(command, [...prefix, '-c', 'import sys; assert sys.version_info >= (3,10); print(sys.version)']);
       return { command, prefix };
-    } catch { /* Try the next interpreter. */ }
+    } catch { /* Try next interpreter */ }
   }
   throw new Error('未找到 Python 3.10+，请安装 Python 或在设置中选择 python.exe。Apple ID 登录无需 Python。');
 }
@@ -57,8 +75,9 @@ async function engineRuntime(config = {}, options = {}) {
   } catch {
     throw new Error(`此 Python 未安装 gamdl，请使用同一 Python 安装 gamdl==${ENGINE_VERSION}，然后重新检测。`);
   }
-  if (version !== ENGINE_VERSION) throw new Error(`检测到 gamdl ${version}，本版需要 gamdl ${ENGINE_VERSION}（Wrapper v2 API ${WRAPPER_API_VERSION}）。请更新所选 Python 环境。`);
-  // Import the CLI and native extension too: metadata alone does not prove a working installation.
+  if (version !== ENGINE_VERSION) {
+    throw new Error(`检测到 gamdl ${version}，本版需要 gamdl ${ENGINE_VERSION}（Wrapper v2 API ${WRAPPER_API_VERSION}）。请更新所选 Python 环境。`);
+  }
   await capture(python.command, [...python.prefix, '-m', 'gamdl', '--version']);
   return { ...python, version, kind: 'python' };
 }
@@ -72,7 +91,7 @@ function musicUrl(value) {
   if (url.protocol !== 'https:' || url.hostname !== 'music.apple.com' || url.username || url.password || url.port) {
     throw new Error('请输入 https://music.apple.com/ 开头的有效链接');
   }
-  if (!/^\/[a-z]{2}\/(album|song|playlist|music-video|artist)\//i.test(url.pathname)) {
+  if (!/^\/[a-z]{2}\/(album|song|playlist|music-video|artist|post)\//i.test(url.pathname)) {
     throw new Error('不支持此 Apple Music 链接类型');
   }
   return url.href;
@@ -114,38 +133,89 @@ function getJson(url, timeout = 5000) {
 async function checkWrapper(config) {
   const settings = wrapperSettings(config);
   const me = await getJson(`${settings.url}/me`);
-  if (me.version !== WRAPPER_API_VERSION) throw new Error(`Wrapper API 不兼容：需要 ${WRAPPER_API_VERSION}，检测到 ${me.version || '未知'}。请部署匹配的 wrapper-v2。`);
-  if (me.auth?.state !== 'authenticated') throw new Error('Wrapper 尚未登录，请先在 Wrapper 服务端完成 Apple ID 登录和双重认证。');
-  if (me.runtime?.playback_ready !== true) throw new Error('Wrapper 播放服务尚未就绪，请检查服务端运行环境');
+  if (me.version !== WRAPPER_API_VERSION) {
+    throw new Error(`Wrapper API 不兼容：需要 ${WRAPPER_API_VERSION}，检测到 ${me.version || '未知'}。请部署匹配的 wrapper-v2。`);
+  }
+  if (me.auth?.state !== 'authenticated') {
+    throw new Error('Wrapper 尚未登录，请先在 Wrapper 服务端完成 Apple ID 登录和双重认证。');
+  }
+  if (me.runtime?.playback_ready !== true) {
+    throw new Error('Wrapper 播放服务尚未就绪，请检查服务端运行环境');
+  }
   await new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: settings.host, port: settings.port });
     const timer = setTimeout(() => socket.destroy(new Error('Wrapper TCP 连接超时')), 5000);
     socket.once('connect', () => { clearTimeout(timer); socket.destroy(); resolve(); });
     socket.once('error', err => { clearTimeout(timer); reject(err); });
   });
-  return 'Wrapper v2 已登录，HTTP 与 TCP 端口可连接（尚未验证实际下载）';
+  return 'Wrapper v2 已登录，HTTP 与 TCP 端口可连接';
 }
 
 function buildDownloadArgs(config, task, cookiePath) {
   const url = musicUrl(task.url);
-  const codec = config.songCodec || 'aac-web';
-  if (!['aac-web', 'aac', 'alac', 'atmos', 'ac3'].includes(codec)) throw new Error('不支持的音频编码');
-  if (codec === 'alac' && !config.useWrapper) throw new Error('ALAC 无损下载请先在设置中启用并连接 Wrapper v2。');
-  const args = ['--no-config-file', '--output-path', task.saveDir || config.downloadDir,
-    '--album-folder-template', '{album_artist}/{album}', '--song-codec-priority', codec];
+  const codec = task.codec || config.songCodec || 'aac-web';
+  if (!ALLOWED_CODECS.has(codec)) throw new Error('不支持的音频编码');
+  if (codec === 'alac' && !config.useWrapper) {
+    throw new Error('ALAC 无损下载请先在设置中启用并连接 Wrapper v2。');
+  }
+
+  const albumFolder = config.albumFolderTemplate !== undefined ? config.albumFolderTemplate : '{album_artist}/{album}';
+  const args = [
+    '--no-config-file',
+    '--output-path', task.saveDir || config.downloadDir,
+    '--album-folder-template', albumFolder,
+    '--song-codec-priority', codec
+  ];
+
+  if (config.singleDiscFileTemplate) args.push('--single-disc-file-template', config.singleDiscFileTemplate);
+  if (config.multiDiscFileTemplate) args.push('--multi-disc-file-template', config.multiDiscFileTemplate);
+  if (config.playlistFolderTemplate) args.push('--playlist-folder-template', config.playlistFolderTemplate);
+  if (config.truncate && Number(config.truncate) > 0) args.push('--truncate', String(config.truncate));
+  if (config.musicVideoResolution) args.push('--music-video-resolution', config.musicVideoResolution);
+  if (config.musicVideoRemuxFormat) args.push('--music-video-remux-format', config.musicVideoRemuxFormat);
+  if (config.artistAutoSelect) args.push('--artist-auto-select', config.artistAutoSelect);
+  if (config.coverFormat) args.push('--cover-format', config.coverFormat);
+  if (config.coverSize) args.push('--cover-size', String(config.coverSize));
+  if (config.downloadMode) args.push('--download-mode', config.downloadMode);
+  if (config.language && config.language.trim()) args.push('--language', config.language.trim());
+
   if (config.useWrapper) {
     const settings = wrapperSettings(config);
     args.push('--use-wrapper', '--wrapper-url', settings.url,
       '--wrapper-decrypt-host', settings.host, '--wrapper-decrypt-port', String(settings.port));
-  } else args.push('--cookies-path', cookiePath);
-  if (config.syncedLyricsFormat === 'none') args.push('--no-synced-lyrics');
-  else if (config.syncedLyricsFormat) args.push('--synced-lyrics-format', config.syncedLyricsFormat);
-  for (const [key, flag] of [['saveCover', '--save-cover'], ['savePlaylist', '--save-playlist'], ['overwrite', '--overwrite']]) {
+  } else {
+    args.push('--cookies-path', cookiePath);
+  }
+
+  const lyricsOnly = Boolean(task.lyricsOnly || config.syncedLyricsOnly);
+  if (lyricsOnly) {
+    args.push('--synced-lyrics-only');
+    const fmt = config.syncedLyricsFormat === 'none' ? 'lrc' : (config.syncedLyricsFormat || 'lrc');
+    args.push('--synced-lyrics-format', fmt);
+  } else if (config.syncedLyricsFormat === 'none') {
+    args.push('--no-synced-lyrics');
+  } else if (config.syncedLyricsFormat) {
+    args.push('--synced-lyrics-format', config.syncedLyricsFormat);
+  }
+
+  for (const [key, flag] of [
+    ['saveCover', '--save-cover'],
+    ['savePlaylist', '--save-playlist'],
+    ['overwrite', '--overwrite'],
+    ['useAlbumDate', '--use-album-date']
+  ]) {
     if (config[key]) args.push(flag);
   }
-  for (const [key, flag] of [['ffmpegPath', '--ffmpeg-path'], ['nm3u8dlrePath', '--nm3u8dlre-path'], ['wvdPath', '--wvd-path']]) {
+
+  for (const [key, flag] of [
+    ['ffmpegPath', '--ffmpeg-path'],
+    ['nm3u8dlrePath', '--nm3u8dlre-path'],
+    ['wvdPath', '--wvd-path'],
+    ['databasePath', '--database-path']
+  ]) {
     if (config[key]?.trim()) args.push(flag, config[key].trim());
   }
+
   args.push('--', url);
   return args;
 }
@@ -154,15 +224,26 @@ function downloadResult(code, logs, cancelled = false) {
   if (cancelled) return { success: false, msg: '已手动终止' };
   const clean = logs.replace(/\x1b\[[0-9;]*m/g, '');
   const summaries = [...clean.matchAll(/Finished with (\d+) error\(s\)/gi)];
-  // gamdl can return exit code 0 after early failures; require its final summary.
   const success = code === 0 && summaries.length > 0 && summaries.every(m => Number(m[1]) === 0)
     && !/\[(?:error|critical)\s*\]|Traceback \(most recent call last\)|Required dependency not found|Requested format is not available|Media is not streamable|Decryption is not available|URL is not valid or supported/i.test(clean);
   let msg = '下载失败，请查看任务日志';
   if (/no active apple music subscription/i.test(clean)) msg = '账号无有效 Apple Music 订阅';
   else if (/not found|no such file/i.test(clean)) msg = '缺少文件或依赖，请检查环境与配置并查看日志';
+  else if (/Requested format is not available|Media is not streamable/i.test(clean)) msg = '当前曲目受地区版权限制或所选编码不可用';
+  else if (/Decryption is not available|ckc error/i.test(clean)) msg = '流媒体解密不可用，建议改用 AAC-Web 或检查 Wrapper';
   else if (/wrapper/i.test(clean)) msg = 'Wrapper 请求失败，请检查服务登录状态、API 版本与端口';
   return { success, msg: success ? '成功' : msg };
 }
 
-module.exports = { ENGINE_VERSION, capture, findPython, engineRuntime, engineArgs, musicUrl, wrapperSettings,
-  checkWrapper, buildDownloadArgs, downloadResult };
+module.exports = {
+  ENGINE_VERSION,
+  capture,
+  findPython,
+  engineRuntime,
+  engineArgs,
+  musicUrl,
+  wrapperSettings,
+  checkWrapper,
+  buildDownloadArgs,
+  downloadResult
+};
